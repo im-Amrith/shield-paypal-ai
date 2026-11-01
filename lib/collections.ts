@@ -107,7 +107,7 @@ export async function createInvoice(freelancerId: Persona, input: {
   const inv: Invoice = {
     id, freelancerId, clientName: input.clientName, clientEmail: input.clientEmail, relationship: input.relationship,
     items: input.items.map((i) => ({ name: i.name, amount: +i.amount })), currency: input.currency, issuedAt: nowIso(), dueAt: due.toISOString(), lateFeePercent: input.lateFeePercent,
-    status: "sent", amountPaid: 0, paypalInvoiceId: pp.invoiceId, reminders: [], offerPayLater: input.offerPayLater,
+    status: "sent", amountPaid: 0, paypalInvoiceId: pp.invoiceId, payLink: pp.link, reminders: [], offerPayLater: input.offerPayLater,
   };
   mutate((d) => {
     d.invoices.unshift(inv);

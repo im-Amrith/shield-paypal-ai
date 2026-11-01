@@ -5,20 +5,36 @@ import path from "node:path";
 import type { DB } from "./types";
 import { seedDB } from "./seed";
 
-const DB_PATH = path.resolve(process.cwd(), process.env.SHIELD_DB_PATH || "data/db.json");
+// turbopackIgnore keeps the build from tracing the whole project for this runtime path.
+const DB_PATH = path.resolve(/* turbopackIgnore: true */ process.cwd(), process.env.SHIELD_DB_PATH || "data/db.json");
 
 let cache: DB | null = null;
+let cacheMtime = 0;
 
+// Pages and API routes are bundled separately in production, so each holds its
+// own copy of this module. Re-read whenever the file changed on disk so every
+// bundle sees the latest writes.
 function load(): DB {
-  if (cache) return cache;
+  let mtime = -1;
   try {
-    const raw = fs.readFileSync(DB_PATH, "utf8");
-    cache = JSON.parse(raw) as DB;
+    mtime = fs.statSync(DB_PATH).mtimeMs;
   } catch {
-    cache = seedDB();
-    persist();
+    /* no file yet */
   }
-  return cache!;
+  if (cache && mtime === cacheMtime) return cache;
+  if (mtime >= 0) {
+    try {
+      cache = JSON.parse(fs.readFileSync(DB_PATH, "utf8")) as DB;
+      cacheMtime = mtime;
+      return cache;
+    } catch {
+      /* corrupt or mid-write: fall through to reseed only if we have nothing */
+      if (cache) return cache;
+    }
+  }
+  cache = seedDB();
+  persist();
+  return cache;
 }
 
 function persist() {
@@ -27,6 +43,7 @@ function persist() {
   const tmp = DB_PATH + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
   fs.renameSync(tmp, DB_PATH);
+  cacheMtime = fs.statSync(DB_PATH).mtimeMs;
 }
 
 /** Read-only snapshot of the database. */

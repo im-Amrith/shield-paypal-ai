@@ -90,6 +90,7 @@ export interface Invoice {
   status: "draft" | "sent" | "paid" | "partially_paid" | "cancelled" | "disputed";
   amountPaid: number;
   paypalInvoiceId?: string;
+  payLink?: string;
   reminders: { at: string; step: number; tone: string; subject: string; body: string }[];
   offerPayLater: boolean;
 }

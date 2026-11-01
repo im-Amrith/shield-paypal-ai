@@ -52,6 +52,8 @@ The message may be in Hindi, Malayalam or English. Return {"category": "..."}.`,
   return ai && (CATEGORIES as readonly string[]).includes(ai.category) ? (ai.category as Category) : rules;
 }
 
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 function push(caseId: string, msg: Omit<SupportMessage, "at">, patch?: (c: SupportCase) => void): SupportCase {
   return mutate((d) => {
     const c = d.cases.find((x) => x.id === caseId)!;
@@ -69,7 +71,9 @@ function timeline(c: SupportCase, label: string) {
 const LANG_NAME: Record<string, string> = { "en-IN": "English", "hi-IN": "Hindi", "ml-IN": "Malayalam", en: "English" };
 
 async function tier1Reply(text: string, category: Category, lang: string, history: SupportMessage[]): Promise<{ text: string; sources: Article[] }> {
-  const hits = retrieve(text, 2).map((h) => h.article);
+  const ranked = retrieve(text, 2);
+  // Keep a second article only if it is nearly as relevant as the first.
+  const hits = ranked.filter((h, i) => i === 0 || h.score >= ranked[0].score * 0.6).map((h) => h.article);
   const fromCategory = KB.find((a) => a.category === category);
   const sources = hits.length ? hits : fromCategory ? [fromCategory] : [];
   const fallback = sources.length
@@ -230,15 +234,15 @@ export async function escalateTier2(caseId: string, lang = "en-IN"): Promise<Sup
 
   if (plan.decision === "auto") return executeAction(caseId, plan.id, "policy");
   if (plan.decision === "ask_customer") {
-    return push(caseId, { from: "tier2", text: `${intro}\n\nI can ${plan.summary.toLowerCase()} now. ${plan.reason}. Shall I go ahead? (yes / no)` }, (x) => {
+    return push(caseId, { from: "tier2", text: `${intro}\n\nI can ${lowerFirst(plan.summary)} now. ${plan.reason}. Shall I go ahead? (yes / no)` }, (x) => {
       x.status = "waiting_customer";
     });
   }
   if (plan.decision === "needs_human") {
-    push(caseId, { from: "tier2", text: `${intro}\n\nThe fix is to ${plan.summary.toLowerCase()}. ${plan.reason}, so I've sent a summary to a support specialist for approval. You don't need to repeat anything. I'll update you here.` });
+    push(caseId, { from: "tier2", text: `${intro}\n\nThe fix is to ${lowerFirst(plan.summary)}. ${plan.reason}, so I've sent a summary to a support specialist for approval. You don't need to repeat anything. I'll update you here.` });
     return requestHuman(caseId, `Approval needed: ${plan.summary}`, true);
   }
-  return push(caseId, { from: "tier2", text: `${intro}\n\nFor your security I can't ${plan.summary.toLowerCase()} for you: ${plan.reason}.` });
+  return push(caseId, { from: "tier2", text: `${intro}\n\nFor your security I can't ${lowerFirst(plan.summary)} for you: ${plan.reason}.` });
 }
 
 export async function requestHuman(caseId: string, why: string, quiet = false): Promise<SupportCase> {
@@ -292,7 +296,7 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
           d.transactions.push({ id: uid("tx"), userId: c.customerId, at: nowIso(), amount: Number(a.amount), currency: a.currency || "USD", direction: "in",
             counterparty: t?.counterparty || "Refund", country: "IN", type: "refund", memo: `Refund ${r.refundId} (case ${caseId})` });
         });
-        result = `Refund ${r.refundId} ${r.status}`;
+        result = `Refund of ${a.currency || "USD"} ${Number(a.amount).toFixed(2)} issued to the original payment method (PayPal ref ${r.refundId})`;
         break;
       }
       case "open_dispute":

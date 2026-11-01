@@ -19,32 +19,20 @@ npm run dev
 ```
 No keys needed: PayPal falls back to a mock (`lib/paypal.ts`, `paypalMode()`), LLM falls back to rules (`lib/llm.ts`). Keys go in `.env.local` (see `.env.example`).
 
-## Status (Nov 1)
-DONE — backend, tested:
-- `lib/` store (JSON file `data/db.json`), demo clock, seed, policy engine, paypal REST client (orders authorize/capture/void/reauth, refunds, invoicing v2), llm (Anthropic or OpenAI-compatible, vision), scam, guardian, vault, collections, fx, risk (signals, simulated limitation, explainer, appeal, re-notify 24h/72h), kb + support (tiers, policy-gated actions, human console functions), subscriptions, notify (Resend or outbox), jobs
-- `app/api/*` route handlers: session, scam, guardian, vault, invoices, fx, support, risk, demo (reset/advance clock/jobs), jobs (cron), notifications, state (polling)
-- `tests/` 10 files, 62 tests; `evals/` scam (38 dev + 14 held-out), triage (30), guardian (18)
+## Status (Nov 1, evening)
+DONE and verified:
+- Backend `lib/` (see README), API routes incl. verified PayPal webhook
+- UI: every page in the plan (home per persona, protect, scan, vault, guardian, subscriptions, get-paid + FX copilot, account health/explainer, client pay page, support chat with voice, human console, demo controls), PWA manifest
+- `npm test` 62 passing · `npm run eval` targets met · `npm run build` clean (no warnings) · `scripts/smoke.sh` 16 end-to-end checks passing against `next start`
+- Screens reviewed at 390px phone width
 
-Eval honesty: dev sets were written alongside the rules, so they score 100%. The held-out scam set scores ~50% recall with rules alone — that gap is the argument for the LLM layer; its target is only enforced when an LLM key is set. Run `SHIELD_EVAL_LLM=1 npm run eval` once a key is added and report the real number.
+Fixed along the way: DB cache was per-bundle (pages showed stale data) → store re-reads on file mtime change.
 
-TODO — in order:
-1. UI (nothing exists yet besides api routes): `app/layout.tsx`, `app/globals.css` (Tailwind 4: `@import "tailwindcss";`), mobile-first phone-width shell with bottom nav (Home, Protect, Get Paid, Support, Demo) + persona switcher. Pages:
-   - `/` home: three pillar cards, notifications (call /api/notifications to mark read), risk badge
-   - `/protect/scan`: paste text / upload screenshot → /api/scam → signals, score, "Pay safely with Vault"
-   - `/vault`, `/vault/[id]`: create deal (seller), pay (PayPal JS SDK buttons when NEXT_PUBLIC_PAYPAL_CLIENT_ID set, else "simulate approval"), ship, mark delivered (demo), confirm / report problem (buyer), timeline, fee breakdown, auto-release countdown
-   - `/guardian`, `/guardian/[id]`: Ravi sends money; Meera approves/blocks holds; Ravi can cancel; reasons + cooling-off
-   - `/get-paid`: invoices + new invoice form with FX copilot (/api/fx), reminder timeline, "client pays" demo button
-   - `/get-paid/account`: risk report, simulate freeze, explanation, evidence txns, docs to upload, copyable appeal
-   - `/subscriptions`: `findRecurring` + `cancellationEmail`
-   - `/support`: chat with voice via browser Web Speech API (SpeechRecognition + speechSynthesis, langs en-IN / hi-IN / ml-IN), action confirm chips, case timeline, poll /api/state
-   - `/console` (agent persona, desktop width): queue of `waiting_human` cases, AI summary, approve/deny proposed action, take over, message, resolve
-   - `/demo`: advance clock (1h/1d/3d/1w), run jobs, reset, simulate freeze, email outbox
-   Pages read the DB server-side (`export const dynamic = "force-dynamic"`), mutate via fetch to /api then `router.refresh()`.
-2. `app/api/paypal/webhook/route.ts`: verify with /v1/notifications/verify-webhook-signature when PAYPAL_WEBHOOK_ID set; handle INVOICING.INVOICE.PAID → recordPayment.
-3. `npm run build` must pass (Next 16, React 19, TypeScript pinned to 5.x on purpose).
-4. README (setup, what's real vs simulated, keys), MIT LICENSE, deploy to Render, seeded demo, record <3 min video.
-
-Stretch only if ahead: voice handoff polish, bounded shopping agent (`decideSpend` already in lib/policy.ts).
+TODO next:
+1. Add real keys to `.env.local`; run the sandbox Vault flow with PayPal Smart Buttons and a real invoice; then `SHIELD_EVAL_LLM=1 npm run eval` and put the held-out number in the README.
+2. Deploy to Render (+ cron for /api/jobs), seed demo, check on a real phone (voice needs Chrome/Android or Safari).
+3. Record the <3 min video (script in the plan doc). Submit on Devpost before Nov 12, 12:00 PM PST.
+Stretch: bounded shopping agent UI (`decideSpend` exists), traceable giving.
 
 ## Conventions / gotchas
 - Never store caller-owned arrays by reference in the DB (a test caught `items` being mutated); copy.
