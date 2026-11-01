@@ -1,0 +1,20 @@
+[
+  {"payee": "KSEB Electricity", "amount": 24, "note": "monthly bill", "hold": false},
+  {"payee": "Apollo Pharmacy", "amount": 18, "note": "medicines", "hold": false},
+  {"payee": "Meera (daughter)", "amount": 60, "note": "for Onam shopping", "hold": false},
+  {"payee": "Mathrubhumi Subscription", "amount": 7, "note": "", "hold": false},
+  {"payee": "Income Tax Officer Verma", "amount": 450, "note": "penalty, pay immediately to avoid arrest", "hold": true},
+  {"payee": "Customs Clearance Dept", "amount": 120, "note": "parcel seized, customs duty urgent", "hold": true},
+  {"payee": "Anna Williams", "amount": 800, "note": "my love, for your visa fee so you can come see me", "hold": true},
+  {"payee": "Lucky Draw Office", "amount": 85, "note": "processing fee to release the prize", "hold": true},
+  {"payee": "Rahul Electronics", "amount": 300, "note": "new TV", "hold": true},
+  {"payee": "Apollo Pharmacy", "amount": 25, "note": "", "method": "gift_card", "hold": true},
+  {"payee": "CryptoGrowth Pro", "amount": 200, "note": "investment", "method": "crypto", "hold": true},
+  {"payee": "KSEB Electricity", "amount": 30, "note": "bill plus arrears", "hold": false},
+  {"payee": "Bank Verification Team", "amount": 10, "note": "share otp to verify account", "hold": true},
+  {"payee": "Local Temple Trust", "amount": 20, "note": "donation", "hold": false},
+  {"payee": "Ramesh (neighbour)", "amount": 40, "note": "for vegetables", "hold": false},
+  {"payee": "Grandson Arun", "amount": 500, "note": "urgent bail money, don't tell anyone", "hold": true},
+  {"payee": "Meera (daughter)", "amount": 55, "note": "", "hold": false},
+  {"payee": "Electricity Board Officer", "amount": 35, "note": "disconnection tonight, pay immediately", "hold": true}
+]

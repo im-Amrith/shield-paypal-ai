@@ -1,0 +1,16 @@
+[
+  {"text": "Your KYC has expired. Your bank account will be blocked today. Update KYC at kyc-update-sbi.co.in now", "scam": true},
+  {"text": "I'm interested in your saree collection, I'll send payment via PayPal and my shipper will collect from your house", "scam": true},
+  {"text": "Dear seller, I've paid. Check your email for the PayPal confirmation and ship the item to Nigeria, then I'll release the funds", "scam": true},
+  {"text": "Mom I lost my phone, this is my new number. Can you send 20,000 urgently for the hospital, will explain later", "scam": true},
+  {"text": "We are from Amazon. Your account is used for illegal orders. Press 1 and pay a security fee to unlock it", "scam": true},
+  {"text": "Hi, I'd like to order 3 custom mugs. Please send me the total with shipping and I'll pay through your shop checkout.", "scam": false},
+  {"text": "Our team lunch came to 3,600, everyone owes 600. I've requested it on PayPal.", "scam": false},
+  {"text": "Can you hold the cycle till Sunday? I'll come see it and pay you then.", "scam": false},
+  {"text": "Invoice attached for the October retainer, due in 15 days. Thank you!", "scam": false},
+  {"text": "Your Netflix payment failed. Update your card here within 24 hours to avoid suspension: rb.gy/nflx-upd", "scam": true},
+  {"text": "I can only pay in Bitcoin, the price stays the same", "scam": true},
+  {"text": "The concert tickets sold out, but I have two. Pay me friends and family and I'll email the PDFs", "scam": true},
+  {"text": "Hey! Loved your illustration work. Could you quote me for a book cover? Happy to sign a contract first.", "scam": false},
+  {"text": "Reminder: your dentist appointment is on Tuesday at 4pm. Reply C to confirm.", "scam": false}
+]
