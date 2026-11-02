@@ -22,7 +22,7 @@ npm run dev                   # http://localhost:3000
 
 With no keys, PayPal runs in a faithful **mock** mode and the AI runs on its deterministic rule engine, so judges can try everything immediately. Add keys to switch on the real PayPal sandbox and the LLM.
 
-Use the **persona switcher** in the top bar: Meera (freelancer), Ravi (her father, Guardian mode), Arjun (buyer), Dana (client), Priya (support). The **Demo** tab fast-forwards time so week-long flows (reminders, auto-release, re-alerts) happen in seconds, and has a suggested walkthrough.
+Open http://localhost:3000, press **Open Shield** and pick a demo person (you can switch later from the avatar menu): Meera (freelancer), Ravi (her father, Guardian mode), Arjun (buyer), Dana (client), Priya (support). The **Demo** tab fast-forwards time so week-long flows (reminders, auto-release, re-alerts) happen in seconds, and has a suggested walkthrough.
 
 ## Keys (`.env.local`)
 
