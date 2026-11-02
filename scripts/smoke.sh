@@ -10,15 +10,29 @@ post() { curl -s -b "$J/$1" -c "$J/$1" -X POST "$BASE$2" -H 'content-type: appli
 page() { local f="$J/body"; local c; c=$(curl -s -o "$f" -w '%{http_code}' -b "$J/$1" "$BASE$2"); if grep -qE "__next_error__|couldn.t load|Application error" "$f"; then echo render-error; else echo "$c"; fi; }
 field() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok){console.error('API error:',j.error);process.exit(1)};const v=(new Function('d','return '+process.argv[1]))(j.data);console.log(v)})" "$1"; }
 ok() { echo "  ✓ $1"; }
+# Status and Location header of a request: "307 /signin?next=…" (Location made relative to BASE).
+hop() { curl -s -o /dev/null -D - "$@" | tr -d "\r" | awk -v b="$BASE" 'NR==1{c=$2} tolower($1)=="location:"{l=$2; sub(b,"",l)} END{print c, l}'; }
+
+echo "Signed out"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")" = 200 ] && ok "landing page renders"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/signin")" = 200 ] && ok "sign-in page renders"
+loc=$(hop "$BASE/vault?x=1")
+[ "$loc" = "307 /signin?next=%2Fvault%3Fx%3D1" ] && ok "app route redirects to /signin?next=… ($loc)"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/state")" = 401 ] && ok "API rejects requests with no persona"
+loc=$(hop -X POST -d 'persona=ravi&next=%2Fguardian' "$BASE/api/session")
+[ "$loc" = "303 /guardian" ] && ok "sign-in form sets the persona and returns to next"
+loc=$(hop -X POST -d 'persona=ravi&next=%2F%2Fevil.example' "$BASE/api/session")
+[ "$loc" = "303 /app" ] && ok "off-site next is ignored"
+curl -s -D - -o /dev/null -X POST -d 'action=signout' "$BASE/api/session" | grep -qi 'set-cookie: persona=;' && ok "sign out clears the cookie"
 
 for p in meera ravi buyer client agent; do as $p; done
 post meera /api/demo '{"action":"reset"}' >/dev/null
 
 echo "Pages"
-for path in / /protect /protect/scan /vault /guardian /subscriptions /get-paid /get-paid/account /support /demo; do
+for path in /app /protect /protect/scan /vault /guardian /subscriptions /get-paid /get-paid/account /support /demo; do
   for p in meera ravi; do c=$(page $p $path); [ "$c" = 200 ] || { echo "  ✗ $path as $p -> $c"; exit 1; }; done
 done
-[ "$(page agent /console)" = 200 ] && ok "all pages render (200)"
+[ "$(page agent /console)" = 200 ] && [ "$(page agent /)" = 200 ] && ok "all pages render (200), signed in"
 
 echo "Scam check"
 lvl=$(post buyer /api/scam '{"text":"pay me friends and family, my courier agent will pick it up, urgent"}' | field 'd.level')

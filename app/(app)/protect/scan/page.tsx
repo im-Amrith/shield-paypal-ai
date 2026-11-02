@@ -81,7 +81,7 @@ export default function ScanPage() {
 
   return (
     <div>
-      <PageHeader title="Scam check" subtitle="Paste what they sent before you pay. Nothing is sent to the other person." back="/protect" backLabel="Protect" />
+      <PageHeader title="Scam check" subtitle="Paste what they sent before you pay. Nothing is sent to the other person." />
 
       <div aria-live="polite">
         {res && (

@@ -34,7 +34,7 @@ export default async function AccountPage() {
   if (exp) {
     return (
       <div>
-        <PageHeader title="Account health" back="/get-paid" backLabel="Get Paid" />
+        <PageHeader title="Account health" />
         {hero}
         <AlertBanner tone="danger" Icon={ShieldAlert} title={exp.reason.title}
           detail={<>{exp.reason.plain} Your money is held, not lost. A hold can last up to 180 days if nothing is sent; most reviews finish within days of receiving documents.</>}
@@ -88,7 +88,7 @@ export default async function AccountPage() {
 
   return (
     <div>
-      <PageHeader title="Account health" back="/get-paid" backLabel="Get Paid" subtitle="Shield reads the signals a PayPal risk reviewer looks at, so you hear about a problem before a freeze." />
+      <PageHeader title="Account health" subtitle="Shield reads the signals a PayPal risk reviewer looks at, so you hear about a problem before a freeze." />
       {hero}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <AlertRows title="What a reviewer would see" empty="No warning signs in the last 90 days."

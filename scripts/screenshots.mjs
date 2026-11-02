@@ -12,11 +12,11 @@ const idsJson = execFileSync(process.execPath, [fileURLToPath(new URL("./seed-de
 const ids = JSON.parse(idsJson);
 const BASE = process.env.BASE || "http://localhost:3000";
 const PAGES = {
-  meera: ["/", "/alerts", "/protect", "/protect/scan?q=send it as friends and family, my courier will collect today", "/vault", `/vault/${ids.vault}`, "/guardian", `/guardian/${ids.hold}`, "/get-paid", "/get-paid/account", "/subscriptions", "/support", "/demo"],
-  ravi: ["/", "/guardian", `/guardian/${ids.hold}`, `/support?case=${ids.case}`, "/subscriptions"],
-  buyer: ["/", `/vault/${ids.vault}`],
-  agent: ["/", `/console?case=${ids.case}`],
-  client: ["/", `/get-paid/pay/${ids.invoice}`],
+  meera: ["/app", "/alerts", "/protect", "/protect/scan?q=send it as friends and family, my courier will collect today", "/vault", `/vault/${ids.vault}`, "/guardian", `/guardian/${ids.hold}`, "/get-paid", "/get-paid/account", "/subscriptions", "/support", "/demo"],
+  ravi: ["/app", "/guardian", `/guardian/${ids.hold}`, `/support?case=${ids.case}`, "/subscriptions"],
+  buyer: ["/app", `/vault/${ids.vault}`],
+  agent: ["/app", `/console?case=${ids.case}`],
+  client: ["/app", `/get-paid/pay/${ids.invoice}`],
 };
 const VIEWS = { phone: { width: 390, height: 844 }, desk: { width: 1440, height: 900 } };
 const browser = await chromium.launch({ channel: "chrome" });
@@ -29,7 +29,7 @@ for (const [persona, paths] of Object.entries(PAGES)) {
       const page = await ctx.newPage();
       page.on("console", (m) => { if (m.type() === "error") problems.push(`${persona} ${theme} ${vn} console: ${m.text().slice(0, 160)}`); });
       for (const p of paths) {
-        const name = `${persona}-${p.split("?")[0].replace(/\//g, "_").replace(/^_$/, "home").replace(/^_/, "")}-${theme}-${vn}`;
+        const name = `${persona}-${p.split("?")[0].replace(/\//g, "_").replace(/^_app$/, "home").replace(/^_/, "")}-${theme}-${vn}`;
         if (filter && !name.includes(filter)) continue;
         await page.goto(BASE + p, { waitUntil: "networkidle" });
         await page.waitForTimeout(p.includes("scan") ? 900 : 150);

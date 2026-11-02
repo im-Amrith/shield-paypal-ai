@@ -50,7 +50,7 @@ export function Alerts({ items, limit, title = "Recent Alerts", detail, empty = 
             return (
               <li key={n.id}>
                 <Link
-                  href={n.link || "/"}
+                  href={n.link || "/app"}
                   onClick={() => { if (!n.read) api("/api/notifications", { id: n.id }).then(() => router.refresh()).catch(() => undefined); }}
                   className="press -mx-2 flex items-start gap-3 rounded-control px-2 py-3 hover:bg-raised"
                 >

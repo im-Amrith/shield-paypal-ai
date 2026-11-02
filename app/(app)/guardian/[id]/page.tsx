@@ -22,7 +22,7 @@ export default async function HoldPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className={isSenior ? "text-[17px]" : ""}>
-      <PageHeader title={isGuardian ? `Check ${sFirst}'s payment` : "Payment paused for a check"} back="/guardian" backLabel={isGuardian ? "Dad's payments" : "Send money"} />
+      <PageHeader title={isGuardian ? `Check ${sFirst}'s payment` : "Payment paused for a check"} />
 
       <HeroBand visual={<HeroGauge value={h.riskScore} label="Scam risk" valueText={`${h.riskScore} out of 100, ${level.toLowerCase()}`} />}
         label="Scam risk" title={<>{fmtMoney(h.amount, h.currency)} to {h.payee}: <Hi tone={h.riskScore >= 30 ? "accent" : "success"}>{level}</Hi></>}>

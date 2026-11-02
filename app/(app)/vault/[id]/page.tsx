@@ -81,7 +81,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div>
-      <PageHeader title={deal.title} back="/vault" backLabel="Vault" subtitle={isSeller ? "You're selling to Arjun Menon" : isBuyer ? "You're buying from Meera Nair" : "Vault deal"} />
+      <PageHeader title={deal.title} subtitle={isSeller ? "You're selling to Arjun Menon" : isBuyer ? "You're buying from Meera Nair" : "Vault deal"} />
 
       <HeroBand
         visual={<HeroGauge value={pct} label="Deal progress" suffix="" valueText={`Step ${stage + 1} of ${VAULT_STEPS.length}: ${st.label}`}

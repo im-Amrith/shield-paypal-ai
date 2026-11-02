@@ -18,7 +18,7 @@ export default async function VaultPage() {
 
   return (
     <div>
-      <PageHeader title={me.role === "support" ? "Vault disputes" : "Vault"} back={seller ? "/protect" : undefined} backLabel="Protect"
+      <PageHeader title={me.role === "support" ? "Vault disputes" : "Vault"}
         subtitle="Escrow for sales between people. The buyer pays, PayPal holds it, and it's released after delivery." />
       <HeroBand visual={<HeroFigure sub="held right now"><Money amount={heldSum} currency="USD" whole /></HeroFigure>} label="Vault"
         title={held.length ? <>Held safely: <Hi>{fmtMoney(heldSum, "USD")}</Hi></> : <>Nothing <Hi>held</Hi> right now</>}>

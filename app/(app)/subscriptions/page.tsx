@@ -65,7 +65,7 @@ export default async function SubscriptionsPage() {
 
   return (
     <div>
-      <PageHeader title={me.role === "senior" ? "My subscriptions" : "Subscriptions"} back={me.role === "senior" ? "/" : "/protect"} backLabel={me.role === "senior" ? "Home" : "Protect"}
+      <PageHeader title={me.role === "senior" ? "My subscriptions" : "Subscriptions"}
         subtitle="Repeat charges found in your PayPal history, and how to stop them." />
       <HeroBand visual={<HeroFigure sub="a year">{fmtMoney(total, "USD", 0)}</HeroFigure>} label="Subscriptions"
         title={all.length ? <>Paying <Hi>{fmtMoney(total, "USD")}</Hi> a year</> : <>No repeat <Hi>charges</Hi> found</>}>

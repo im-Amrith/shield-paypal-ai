@@ -3,6 +3,7 @@ import { getUser } from "@/lib/session";
 import { db } from "@/lib/store";
 import { PageHeader, HeroBand, HeroFigure, Hi } from "@/components/ui";
 import { Alerts } from "@/components/Alerts";
+import { SearchBox } from "@/components/client";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function AlertsPage({ searchParams }: { searchParams: Promi
         title={unread ? <>You have <Hi>{unread} unread</Hi></> : <>You&apos;re <Hi tone="success">up to date</Hi></>}>
         Urgent ones also go out by push and email, and are re-sent at 24 and 72 hours if you haven&apos;t opened them.
       </HeroBand>
+      <div className="mb-5"><SearchBox initial={q} /></div>
       <Alerts items={items} title={needle ? "Matching alerts" : "All alerts"} detail empty={needle ? "No alerts match that search." : undefined} />
     </div>
   );

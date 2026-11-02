@@ -13,3 +13,9 @@ export async function getUser() {
   const id = await getPersona();
   return db().users.find((u) => u.id === id)!;
 }
+
+/** The signed-in demo persona, or null when nobody has signed in (no valid cookie). */
+export async function signedInPersona(): Promise<Persona | null> {
+  const v = (await cookies()).get("persona")?.value as Persona | undefined;
+  return v && PERSONAS.includes(v) ? v : null;
+}

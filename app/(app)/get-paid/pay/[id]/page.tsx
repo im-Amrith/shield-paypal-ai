@@ -20,7 +20,7 @@ export default async function PayInvoice({ params }: { params: Promise<{ id: str
 
   return (
     <div>
-      <PageHeader title={`Invoice ${inv.id}`} back="/" backLabel="Invoices" subtitle={`From ${freelancer.name} · brand and product design, Kochi`} />
+      <PageHeader title={`Invoice ${inv.id}`} subtitle={`From ${freelancer.name} · brand and product design, Kochi`} />
       <HeroBand visual={<HeroFigure sub={due > 0 ? "balance due" : "paid in full"}>{fmtMoney(due > 0 ? due : total(inv), inv.currency)}</HeroFigure>}
         label="Balance due"
         title={due > 0 ? <>Due <Hi>{relDays(inv.dueAt, at)}</Hi></> : <>Paid <Hi tone="success">in full</Hi></>}>

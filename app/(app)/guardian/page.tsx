@@ -80,7 +80,7 @@ export default async function GuardianPage() {
 
   return (
     <div>
-      <PageHeader title="Dad's payments" back="/protect" backLabel="Protect" subtitle="Ravi's unusual payments wait for your OK. Everyday bills go straight through." />
+      <PageHeader title="Dad's payments" subtitle="Ravi's unusual payments wait for your OK. Everyday bills go straight through." />
       {top ? (
         <>
           <HeroBand visual={<HeroGauge value={top.riskScore} label="Scam risk" valueText={`${top.riskScore} out of 100`} />}
