@@ -47,15 +47,15 @@ export function PayPalPay({ dealId, orderId, currency }: { dealId: string; order
   if (!clientId) {
     return (
       <div>
-        <ActionButton full path="/api/vault" body={{ action: "authorize", id: dealId }}>Pay with PayPal (simulated approval)</ActionButton>
-        <p className="mt-1 text-[11px] text-ink/45">Mock mode. Add PayPal sandbox keys to see real PayPal buttons.</p>
+        <ActionButton full path="/api/vault" body={{ action: "authorize", id: dealId }}>Approve payment with PayPal</ActionButton>
+        <p className="mt-2 text-[13px] text-muted">Mock mode: the approval is simulated. Add PayPal sandbox keys to see the real PayPal buttons here.</p>
       </div>
     );
   }
   return (
     <div>
       <div ref={ref} />
-      {err && <p role="alert" className="text-sm text-danger">{err}</p>}
+      {err && <p role="alert" className="mt-2 text-[14px] text-danger">{err}</p>}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 {
   "name": "Shield",
   "short_name": "Shield",
-  "description": "An AI trust layer built on PayPal",
+  "description": "Pay, get paid and get help, with an AI that checks first",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f4ef",
-  "theme_color": "#14213d",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

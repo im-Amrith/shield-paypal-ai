@@ -7,3 +7,5 @@ data/test-db.json
 *.tsbuildinfo
 next-env.d.ts
 evals/results.json
+.taste-skill/
+.screens/

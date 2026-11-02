@@ -28,6 +28,16 @@ DONE and verified:
 
 Fixed along the way: DB cache was per-bundle (pages showed stale data) → store re-reads on file mtime change.
 
+UI (Nov 2): "Hero score" design — references in `design/hero-desktop.png` and `design/hero-mobile.png` (phone #3). Dark by default (near-black, one orange accent #FF7A1A), light theme blue. Every page opens with a `HeroBand` (ring `HeroGauge` or `HeroFigure`), then an `AlertBanner` when something's urgent, then cards. Shell: 240px sidebar + search top bar on ≥1024px; top bar (persona pill, theme toggle, bell) + orange bottom nav below. Nav is per persona.
+- Tokens are CSS variables on `:root` (dark) and `[data-theme="light"]` in `app/globals.css`, mapped to Tailwind via `@theme inline` (`bg-card`, `text-muted`, `bg-accent`, `text-on-accent`…). Theme lives in the `theme` cookie; `app/layout.tsx` sets `data-theme` server-side (no flash). Text on orange is near-black (`text-on-accent`) — white on #FF7A1A fails contrast. Two light values are darker than the brief to pass 4.5:1 (muted #586579, success #15803D); see the comment in globals.css.
+- Shared pieces in `components/ui.tsx`: HeroGauge (role="meter", scales 150→200px via container units), HeroBand, HeroFigure, HeroIcon, AlertBanner, FeatureTile, AlertRows, Hi (orange key word).
+- Search goes to `/alerts?q=` (alerts name every payment, invoice and case event).
+- `npm run screens` (app running on :3000) seeds the demo and screenshots every page per persona × theme × 390/1440 into `.screens/`, failing loudly on horizontal scroll, render errors and console errors. Uses `playwright-core` with the installed Chrome.
+- `components/styles.ts` holds `buttonClass`/`inputClass` — server pages must import from there, not from `components/client.tsx` (calling a client-module function on the server crashes the page).
+- Next.js page files may only export page things; shared maps live in `components/vaultStatus.ts` and `components/caseStatus.ts`.
+- `scripts/smoke.sh` now fails on pages that return 200 but render an error boundary, and checks every page as all 5 personas.
+- Seed emails use the undelegated `.demo` TLD so Resend can never deliver demo mail to a real person.
+
 TODO next:
 1. Add real keys to `.env.local`; run the sandbox Vault flow with PayPal Smart Buttons and a real invoice; then `SHIELD_EVAL_LLM=1 npm run eval` and put the held-out number in the README.
 2. Deploy to Render (+ cron for /api/jobs), seed demo, check on a real phone (voice needs Chrome/Android or Safari).

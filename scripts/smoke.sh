@@ -6,7 +6,8 @@ BASE=${BASE:-http://localhost:3000}
 J=$(mktemp -d)
 as() { curl -s -c "$J/$1" -b "$J/$1" -X POST "$BASE/api/session" -H 'content-type: application/json' -d "{\"persona\":\"$1\"}" >/dev/null; }
 post() { curl -s -b "$J/$1" -c "$J/$1" -X POST "$BASE$2" -H 'content-type: application/json' -d "$3"; }
-page() { curl -s -o /dev/null -w '%{http_code}' -b "$J/$1" "$BASE$2"; }
+# Status code, or "render-error" when the page came back 200 but rendered an error boundary.
+page() { local f="$J/body"; local c; c=$(curl -s -o "$f" -w '%{http_code}' -b "$J/$1" "$BASE$2"); if grep -qE "__next_error__|couldn.t load|Application error" "$f"; then echo render-error; else echo "$c"; fi; }
 field() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok){console.error('API error:',j.error);process.exit(1)};const v=(new Function('d','return '+process.argv[1]))(j.data);console.log(v)})" "$1"; }
 ok() { echo "  ✓ $1"; }
 
@@ -38,7 +39,7 @@ post meera /api/guardian "{\"action\":\"block\",\"holdId\":\"$hid\"}" | field 'd
 post ravi /api/guardian '{"action":"pay","payee":"KSEB Electricity","amount":24,"note":"bill"}' | field 'd.status' | grep -q sent && ok "normal bill goes straight through"
 
 echo "Collections"
-inv=$(post meera /api/invoices '{"action":"create","clientName":"Dana Brooks","clientEmail":"dana@northwind.example","relationship":"regular","items":[{"name":"Logo","amount":800}],"currency":"USD","dueInDays":14,"lateFeePercent":2,"offerPayLater":true}' | field 'd.id')
+inv=$(post meera /api/invoices '{"action":"create","clientName":"Dana Brooks","clientEmail":"dana@northwind.demo","relationship":"regular","items":[{"name":"Logo","amount":800}],"currency":"USD","dueInDays":14,"lateFeePercent":2,"offerPayLater":true}' | field 'd.id')
 post meera /api/demo '{"action":"advance","hours":384}' | field 'd.jobs.join(",")' | grep -q "$inv:friendly" && ok "friendly reminder after due date"
 post client /api/invoices "{\"action\":\"pay\",\"id\":\"$inv\",\"amount\":400}" | field 'd.status' | grep -q partially_paid && ok "client paid half"
 [ "$(page client /get-paid/pay/$inv)" = 200 ] && ok "client pay page renders"
