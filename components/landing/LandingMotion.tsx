@@ -127,9 +127,12 @@ export function LandingMotion({ children }: { children: React.ReactNode }) {
         gsap.set(lines, { strokeDasharray: 1, strokeDashoffset: 1 });
         gsap.set(nodes, { autoAlpha: 0.15 });
         const tl = gsap.timeline({ defaults: { ease: "none" }, scrollTrigger: { trigger: g, start: "top 72%", end: "bottom 62%", scrub: 0.8 } });
-        for (let step = 0; step <= 5; step++) {
-          tl.to(q(`[data-guardrails] .gnode[data-g="${step}"]`), { autoAlpha: 1, duration: 0.5 }, step);
-          tl.to(q(`[data-guardrails] .gline[data-g="${step}"]`), { strokeDashoffset: 0, duration: 0.8 }, step + 0.3);
+        for (let step = 0; step <= 4; step++) {
+          // Not every step has both a node and a line; skip empty selections.
+          const stepNodes = nodes.filter((n) => n.getAttribute("data-g") === String(step));
+          const stepLines = lines.filter((l) => l.getAttribute("data-g") === String(step));
+          if (stepNodes.length) tl.to(stepNodes, { autoAlpha: 1, duration: 0.5 }, step);
+          if (stepLines.length) tl.to(stepLines, { strokeDashoffset: 0, duration: 0.8 }, step + 0.3);
         }
       }
 

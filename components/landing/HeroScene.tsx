@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, Lightformer, Html } from "@react-three/drei";
+import { Environment, Lightformer } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { heroState } from "./heroState";
 
@@ -166,24 +166,39 @@ const PILLAR_RINGS = [
   { label: "Resolve", r: 2.35, tilt: [1.6, 0.8, -0.4], speed: 0.21 },
 ] as const;
 
-/** Three orbiting rings that the shield splits into on scroll. */
-function Rings({ c }: { c: SceneColors }) {
+type Labels = React.RefObject<(HTMLSpanElement | null)[]>;
+
+/**
+ * Three orbiting rings that the shield splits into on scroll. Their labels are plain DOM spans
+ * next to the canvas (not drei <Html>, which mounts a nested React root per label); each frame
+ * projects the orbiting node to screen space and moves its label there.
+ */
+function Rings({ c, labels }: { c: SceneColors; labels: Labels }) {
   const groups = useRef<(THREE.Group | null)[]>([]);
   const nodes = useRef<(THREE.Group | null)[]>([]);
   const wrap = useRef<THREE.Group>(null);
-  const label = useRef<(HTMLSpanElement | null)[]>([]);
+  const size = useThree((s) => s.size);
+  const _v = useMemo(() => new THREE.Vector3(), []);
   const ringCol = useMemo(() => new THREE.Color(c.accent).multiplyScalar(c.light ? 1 : 1.1), [c.accent, c.light]);
   const nodeCol = useMemo(() => new THREE.Color(c.light ? c.fg : "#ffffff"), [c.fg, c.light]);
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera }) => {
     const p = smooth(0.28, 0.62, heroState.progress);
+    const show = smooth(0.45, 0.62, heroState.progress) * (1 - smooth(0.88, 0.98, heroState.progress));
     if (wrap.current) { wrap.current.visible = p > 0.001; wrap.current.scale.setScalar(0.35 + 0.65 * p); }
     PILLAR_RINGS.forEach((r, i) => {
       const g = groups.current[i];
       if (g) { g.rotation.set(r.tilt[0] * p + Math.PI / 2 * (1 - p), r.tilt[1] * p, r.tilt[2] * p + clock.elapsedTime * r.speed * 0.3); }
       const n = nodes.current[i];
       if (n) { const a = clock.elapsedTime * r.speed * 1.6 + i * 2; n.position.set(Math.cos(a) * r.r, Math.sin(a) * r.r, 0); }
-      const l = label.current[i];
-      if (l) l.style.opacity = String(smooth(0.45, 0.62, heroState.progress) * (1 - smooth(0.88, 0.98, heroState.progress)));
+      const l = labels.current?.[i];
+      if (l) {
+        l.style.opacity = String(show);
+        if (n && show > 0) {
+          n.updateWorldMatrix(true, false);
+          _v.setFromMatrixPosition(n.matrixWorld).project(camera);
+          l.style.transform = `translate3d(${((_v.x + 1) / 2) * size.width}px, ${((1 - _v.y) / 2) * size.height - 22}px, 0) translate(-50%, -50%)`;
+        }
+      }
     });
   });
   return (
@@ -196,9 +211,6 @@ function Rings({ c }: { c: SceneColors }) {
           </mesh>
           <group ref={(el) => { nodes.current[i] = el; }}>
             <mesh><sphereGeometry args={[0.06, 12, 12]} /><meshBasicMaterial color={nodeCol} toneMapped={false} /></mesh>
-            <Html center zIndexRange={[5, 0]} style={{ pointerEvents: "none" }}>
-              <span ref={(el) => { label.current[i] = el; }} className="ring-label">{r.label}</span>
-            </Html>
           </group>
         </group>
       ))}
@@ -207,7 +219,7 @@ function Rings({ c }: { c: SceneColors }) {
 }
 
 /** Camera dolly + pointer tilt + the shield → rings handoff, all driven from heroState. */
-function Rig({ c, wide, count, centered }: { c: SceneColors; wide: boolean; count: number; centered?: boolean }) {
+function Rig({ c, wide, count, centered, labels }: { c: SceneColors; wide: boolean; count: number; centered?: boolean; labels: Labels }) {
   const stage = useRef<THREE.Group>(null);
   const shield = useRef<THREE.Group>(null);
   const camera = useThree((s) => s.camera);
@@ -244,7 +256,7 @@ function Rig({ c, wide, count, centered }: { c: SceneColors; wide: boolean; coun
   return (
     <group ref={stage}>
       <group ref={shield}><Shield c={c} /></group>
-      <Rings c={c} />
+      <Rings c={c} labels={labels} />
       <Payments c={c} count={count} />
     </group>
   );
@@ -254,6 +266,7 @@ export default function HeroScene({ colors, capture, onReady }: { colors: SceneC
   const [wide, setWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
   const [mobile] = useState(() => typeof window !== "undefined" && (window.innerWidth < 768 || matchMedia("(pointer: coarse)").matches));
   const [running, setRunning] = useState(true);
+  const labels = useRef<(HTMLSpanElement | null)[]>([]);
 
   useEffect(() => {
     const onResize = () => setWide(window.innerWidth >= 1024);
@@ -264,6 +277,7 @@ export default function HeroScene({ colors, capture, onReady }: { colors: SceneC
   }, []);
 
   return (
+    <div className="absolute inset-0">
     <Canvas
       dpr={mobile ? 1 : [1, 1.5]}
       frameloop={running ? "always" : "never"}
@@ -281,12 +295,16 @@ export default function HeroScene({ colors, capture, onReady }: { colors: SceneC
         <Lightformer form="rect" intensity={1.2} position={[-5, 0, 1]} rotation-y={Math.PI / 2} scale={[6, 3, 1]} color={colors.accent} />
         <Lightformer form="ring" intensity={0.8} position={[4, -1, 2]} scale={2} color="#ffffff" />
       </Environment>
-      <Rig c={colors} wide={wide} count={capture ? 160 : mobile ? 80 : 170} centered={capture} />
+      <Rig c={colors} wide={wide} count={capture ? 160 : mobile ? 80 : 170} centered={capture} labels={labels} />
       {!colors.light && (
         <EffectComposer multisampling={0}>
           <Bloom mipmapBlur luminanceThreshold={0.5} luminanceSmoothing={0.25} intensity={mobile ? 1.1 : 1.45} radius={0.72} />
         </EffectComposer>
       )}
     </Canvas>
+    {PILLAR_RINGS.map((r, i) => (
+      <span key={r.label} ref={(el) => { labels.current[i] = el; }} className="ring-label pointer-events-none absolute left-0 top-0">{r.label}</span>
+    ))}
+    </div>
   );
 }

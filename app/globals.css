@@ -196,7 +196,7 @@ details > summary::-webkit-details-marker { display: none; }
 @media (max-width: 1023px) { .hero-veil { background: linear-gradient(180deg, var(--page) 0%, color-mix(in srgb, var(--page) 80%, transparent) 42%, transparent 62%); } }
 .hero-still { filter: drop-shadow(0 0 60px var(--glow)); }
 .ring-label { display: inline-block; white-space: nowrap; padding: 4px 12px; border-radius: 999px; font: 700 13px/1.4 var(--font-manrope), system-ui, sans-serif;
-  color: var(--fg); background: color-mix(in srgb, var(--card) 75%, transparent); border: 1px solid var(--border); opacity: 0; transform: translateY(-22px); }
+  color: var(--fg); background: color-mix(in srgb, var(--card) 75%, transparent); border: 1px solid var(--border); opacity: 0; will-change: transform, opacity; }
 
 /* Scroll-scrubbed words: --p goes 0 → 1. Defaults to 1, so text is complete without JS or with reduced motion. */
 /* The dim state stays at 3:1 or better for large text (--wr-min), so even unrevealed words are legible. */
