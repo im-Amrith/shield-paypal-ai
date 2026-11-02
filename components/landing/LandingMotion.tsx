@@ -50,18 +50,29 @@ export function LandingMotion({ children }: { children: React.ReactNode }) {
       /* ---------- Hero: pinned while the 3D scene plays ---------- */
       const hero = el.querySelector<HTMLElement>("[data-hero]");
       if (hero) {
+        // Timeline positions are fractions of the pin and line up with the beats in HeroScene's Rig:
+        // 0–.32 shield to centre · .28–.56 layers pull apart · .46–.72 callouts · .70–.83 layers lock · .9 fade.
         const tl = gsap.timeline({
           defaults: { ease: "none" },
           scrollTrigger: {
-            trigger: hero, start: "top top", end: () => `+=${innerHeight * (wide ? 1.6 : 1.2)}`,
-            pin: true, scrub: 0.8, anticipatePin: 1, invalidateOnRefresh: true,
+            trigger: hero, start: "top top", end: () => `+=${innerHeight * (wide ? 2.1 : 1.6)}`,
+            pin: true, scrub: 1, anticipatePin: 1, invalidateOnRefresh: true,
             onUpdate: (s) => { heroState.progress = s.progress; },
           },
         });
-        tl.to(hero.querySelector("[data-hero-copy]"), { autoAlpha: 0, y: -48, duration: 0.25 }, 0)
-          .fromTo(hero.querySelector("[data-hero-caption]"), { autoAlpha: 0, y: 24 }, { autoAlpha: 1, y: 0, duration: 0.15 }, 0.48)
-          .to(hero.querySelector("[data-hero-caption]"), { autoAlpha: 0, y: -16, duration: 0.1 }, 0.84)
-          .to(hero.querySelector("[data-hero-canvas]"), { autoAlpha: 0, duration: 0.14 }, 0.86);
+        const copy = [...(hero.querySelector("[data-hero-copy]")?.children ?? [])];
+        const cap = hero.querySelector("[data-hero-caption]");
+        // Copy leaves line by line, lifting into a blur (the reverse of its entrance).
+        // fromTo with explicit start values: the CSS entrance may still be running when this is built.
+        tl.fromTo(copy, { autoAlpha: 1, y: 0, filter: "blur(0px)" }, { autoAlpha: 0, y: -56, filter: "blur(8px)", duration: 0.2, stagger: 0.035, ease: "power1.in", immediateRender: false }, 0)
+          .to(hero.querySelector("[data-hero-cue]"), { autoAlpha: 0, duration: 0.06 }, 0)
+          // The veil only exists to keep the headline legible; lift it with the copy so the centred shot is clean.
+          .to(hero.querySelector("[data-hero-veil]"), { autoAlpha: 0, duration: 0.24 }, 0.04)
+          .set(cap, { autoAlpha: 1 }, 0.44)
+          .fromTo(hero.querySelector("[data-cap-a]"), { autoAlpha: 0, y: 22, filter: "blur(8px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.1, ease: "power2.out" }, 0.44)
+          .fromTo(hero.querySelector("[data-cap-b]"), { autoAlpha: 0, y: 22, filter: "blur(8px)" }, { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.1, ease: "power2.out" }, 0.72)
+          .to(cap, { autoAlpha: 0, y: -18, duration: 0.08 }, 0.9)
+          .to(hero.querySelector("[data-hero-canvas]"), { autoAlpha: 0, scale: 1.04, duration: 0.1, ease: "power1.in" }, 0.9);
         // Pause the WebGL loop while the hero is off-screen.
         ScrollTrigger.create({ trigger: hero, start: "top bottom", end: "bottom top", onToggle: (s) => { heroState.active = s.isActive; } });
       }

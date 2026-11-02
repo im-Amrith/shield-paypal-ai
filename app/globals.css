@@ -194,9 +194,27 @@ details > summary::-webkit-details-marker { display: none; }
 /* Keeps the headline legible over the particle streams. */
 .hero-veil { background: linear-gradient(90deg, var(--page) 0%, color-mix(in srgb, var(--page) 88%, transparent) 38%, color-mix(in srgb, var(--page) 40%, transparent) 54%, transparent 64%); }
 @media (max-width: 1023px) { .hero-veil { background: linear-gradient(180deg, var(--page) 0%, color-mix(in srgb, var(--page) 80%, transparent) 42%, transparent 62%); } }
-.hero-still { filter: drop-shadow(0 0 60px var(--glow)); }
-.ring-label { display: inline-block; white-space: nowrap; padding: 4px 12px; border-radius: 999px; font: 700 13px/1.4 var(--font-manrope), system-ui, sans-serif;
-  color: var(--fg); background: color-mix(in srgb, var(--card) 75%, transparent); border: 1px solid var(--border); opacity: 0; will-change: transform, opacity; }
+/* The still already has its lighting baked in; feather its edges into the page instead of outlining the box. */
+.hero-still { -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent); mask-image: radial-gradient(closest-side, #000 72%, transparent); }
+/* Exploded-view callouts: label text here; the dot and elbow leader are SVG. Positioned per frame by HeroScene. */
+.layer-label { display: flex; flex-direction: column; white-space: nowrap; opacity: 0; will-change: transform, opacity; }
+.layer-label[data-side="l"] { text-align: right; }
+.layer-label strong { font: 700 clamp(14px, 1.3vw, 17px)/1.2 var(--font-manrope), system-ui, sans-serif; letter-spacing: -0.01em; color: var(--fg); }
+.layer-label em { font: 500 12px/1.4 var(--font-manrope), system-ui, sans-serif; font-style: normal; color: var(--muted); }
+.layer-leaders polyline { stroke: color-mix(in srgb, var(--fg) 50%, transparent); stroke-width: 1; opacity: 0; }
+.layer-leaders circle { fill: var(--fg); stroke: color-mix(in srgb, var(--fg) 22%, transparent); stroke-width: 6; paint-order: stroke; opacity: 0; }
+@media (max-width: 639px) { .layer-label em { display: none; } }
+
+/* Hero entrance: copy rises out of a soft blur. */
+@keyframes hero-rise { from { opacity: 0; transform: translateY(18px); filter: blur(10px); } }
+/* It runs on the inner elements; GSAP's scroll exit runs on their wrappers, so the two never fight. */
+[data-hero-copy] > * > * { animation: hero-rise 1.1s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+[data-hero-copy] > :nth-child(2) > * { animation-delay: 0.12s; }
+[data-hero-copy] > :nth-child(3) > * { animation-delay: 0.24s; }
+.hero-cue { animation: hero-rise 1.1s 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.hero-cue i { display: block; width: 1px; height: 36px; margin: 10px auto 0; background: linear-gradient(var(--fg), transparent); transform-origin: top; animation: cue 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite; opacity: 0.5; }
+@keyframes cue { 0% { transform: scaleY(0); } 45% { transform: scaleY(1); transform-origin: top; } 55% { transform: scaleY(1); transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+@media (prefers-reduced-motion: reduce) { [data-hero-copy] > * > *, .hero-cue, .hero-cue i { animation: none; } }
 
 /* Scroll-scrubbed words: --p goes 0 → 1. Defaults to 1, so text is complete without JS or with reduced motion. */
 /* The dim state stays at 3:1 or better for large text (--wr-min), so even unrevealed words are legible. */

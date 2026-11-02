@@ -81,28 +81,35 @@ export function Hero({ signedIn }: { signedIn: boolean }) {
             <HeroScene key={colors.light ? "l" : "d"} colors={colors} capture={capture} onReady={() => setReady(true)} />
           </div>
         )}
-        <div className="hero-veil pointer-events-none absolute inset-0" />
+        <div data-hero-veil className="hero-veil pointer-events-none absolute inset-0" />
       </div>
       <p className="sr-only">
-        Illustration: a metal shield with a glowing rim. Streams of small dots, standing for payments, flow through it; most pass and turn white,
-        while a few orange ones are knocked away. As you scroll, the shield splits into three rings named Protect, Get Paid and Resolve.
+        Illustration: a machined metal shield with a glass front, lit like a product photo. Streaks of light, standing for payments, slide past it;
+        a few orange ones hit its edge and stop. As you scroll, the shield separates into three layers labelled Protect, Get Paid and Resolve,
+        then locks back together.
       </p>
 
       <div className="relative mx-auto flex h-full max-w-[1200px] flex-col px-5 pb-10 pt-[104px] sm:px-6 lg:justify-center lg:px-10 lg:pb-0 lg:pt-16">
         <div data-hero-copy className={capture ? "invisible" : ""}>
-          <h1 id="hero-title" className="hero-title font-extrabold">Payments that<br /> protect you.</h1>
-          <p className="mt-5 max-w-[44ch] text-[16px] leading-relaxed text-muted sm:text-[18px] lg:mt-7 lg:text-[19px]">
+          <div><h1 id="hero-title" className="hero-title font-extrabold">Payments that<br /> protect you.</h1></div>
+          <div><p className="mt-5 max-w-[44ch] text-[16px] leading-relaxed text-muted sm:text-[18px] lg:mt-7 lg:text-[19px]">
             Shield is an AI trust layer on PayPal. It stops scams before you pay, gets freelancers paid without the awkward chasing, and gives you support that actually fixes things.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3 lg:mt-9">
+          </p></div>
+          <div><div className="mt-7 flex flex-wrap gap-3 lg:mt-9">
             <Link href={open} className="press inline-flex h-12 items-center rounded-full bg-accent px-7 text-[16px] font-bold text-on-accent hover:bg-accent-2">Open Shield</Link>
             <a href="#problem" data-scroll-to className="press inline-flex h-12 items-center rounded-full border border-fg/25 px-7 text-[16px] font-bold hover:border-fg/60 hover:bg-raised/60">See how it works</a>
-          </div>
+          </div></div>
         </div>
       </div>
-      <p data-hero-caption aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[10vh] text-center text-[clamp(22px,3vw,34px)] font-bold tracking-[-0.03em] opacity-0">
-        Three pillars. One set of rules.
+      <p data-hero-caption aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[7vh] px-5 text-center text-[clamp(24px,3.4vw,40px)] font-bold leading-[1.1] tracking-[-0.035em] opacity-0">
+        <span data-cap-a className="block">Three pillars.</span>
+        <span data-cap-b className="block text-accent">One set of rules.</span>
       </p>
+      {!capture && (
+        <div data-hero-cue aria-hidden className="hero-cue pointer-events-none absolute bottom-6 left-1/2 hidden -translate-x-1/2 text-center text-[11px] font-bold uppercase tracking-[0.22em] text-muted lg:block">
+          Scroll<i />
+        </div>
+      )}
     </section>
   );
 }

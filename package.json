@@ -13,7 +13,8 @@
     "eval": "tsx evals/run.ts",
     "seed": "tsx scripts/seed.ts",
     "screens": "node scripts/screenshots.mjs",
-    "shots:landing": "node scripts/landing-shots.mjs"
+    "shots:landing": "node scripts/landing-shots.mjs",
+    "shots:hero": "node scripts/hero-shots.mjs"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
