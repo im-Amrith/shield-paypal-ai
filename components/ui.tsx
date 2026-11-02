@@ -8,7 +8,7 @@ export type Tone = "neutral" | "success" | "danger" | "accent";
 const TONES: Record<Tone, { bg: string; ink: string; dot: string; edge: string }> = {
   neutral: { bg: "bg-raised", ink: "text-muted", dot: "bg-muted", edge: "border-border" },
   success: { bg: "bg-success-tint", ink: "text-success", dot: "bg-success", edge: "border-success" },
-  danger: { bg: "bg-danger-tint", ink: "text-danger", dot: "bg-danger", edge: "border-danger" },
+  danger: { bg: "bg-danger-tint", ink: "text-danger-ink", dot: "bg-danger", edge: "border-danger" },
   accent: { bg: "bg-accent-tint", ink: "text-accent", dot: "bg-accent", edge: "border-accent" },
 };
 
@@ -49,17 +49,12 @@ export function Dot({ tone = "neutral" }: { tone?: Tone }) {
 
 /* ---------- Headings ---------- */
 
-export function PageHeader({ title, subtitle, back, backLabel = "Back", action }: { title: ReactNode; subtitle?: ReactNode; back?: string; backLabel?: string; action?: ReactNode }) {
+export function PageHeader({ title, subtitle, action }: { title: ReactNode; subtitle?: ReactNode; action?: ReactNode }) {
   return (
     <header className="mb-2 lg:mb-6">
-      {back && (
-        <Link href={back} className="press -ml-1 mb-2 inline-flex items-center gap-0.5 rounded-control py-1 pr-2 text-[14px] font-semibold text-muted hover:text-fg">
-          <ChevronLeft size={18} aria-hidden /> {backLabel}
-        </Link>
-      )}
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 max-w-3xl">
-          <h1 className="text-[23px] font-extrabold leading-tight tracking-[-0.02em] lg:text-[34px]">{title}</h1>
+          <h1 className="text-[25px] font-extrabold leading-tight tracking-[-0.03em] lg:text-[38px]">{title}</h1>
           {subtitle && <p className="mt-0.5 text-[14px] text-muted lg:mt-1 lg:text-[17px]">{subtitle}</p>}
         </div>
         {action}

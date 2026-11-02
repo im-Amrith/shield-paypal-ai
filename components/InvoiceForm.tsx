@@ -82,7 +82,7 @@ export function InvoiceForm() {
         </label>
       </section>
 
-      <section className="rounded-card border border-border bg-card p-5 sm:p-6">
+      <section id="fx" className="scroll-mt-28 rounded-card border border-border bg-card p-5 sm:p-6">
         <h3 className="text-[18px] font-extrabold">FX copilot</h3>
         <p className="mt-1 text-[14px] text-muted">What you&apos;ll actually keep in rupees, for each currency you could bill in.</p>
         {cmp ? (
