@@ -7,6 +7,7 @@ import { db, mutate } from "./store";
 import { DAY, HOUR, now, nowIso, hoursBetween } from "./clock";
 import { notify } from "./notify";
 import { complete } from "./llm";
+import { perRecord } from "./paypalLink";
 
 export interface RiskSignal {
   id: "volume_spike" | "new_countries" | "dispute_rate" | "ff_for_goods" | "large_single";
@@ -186,16 +187,20 @@ export async function explainLimitation(userId: Persona) {
 export async function renotifyUnread(): Promise<number> {
   let sent = 0;
   const t = now();
+  const log: string[] = [];
   for (const n of db().notifications.filter((x) => x.kind === "freeze" && !x.read)) {
     const attempt = n.attempt ?? 1;
     const age = (t.getTime() - new Date(n.at).getTime()) / HOUR;
     const due = (attempt === 1 && age >= 24) || (attempt === 2 && age >= 48);
     if (!due) continue;
-    mutate((d) => {
-      d.notifications.find((x) => x.id === n.id)!.read = true; // superseded by the re-notification
-    });
-    await notify(n.userId, { kind: "freeze", email: true, link: n.link, attempt: attempt + 1, title: `Reminder: ${n.title}`, body: n.body });
-    sent++;
+    // One failed re-alert (e.g. the email provider) never stops the others.
+    await perRecord("renotify", n.id, async () => {
+      mutate((d) => {
+        d.notifications.find((x) => x.id === n.id)!.read = true; // superseded by the re-notification
+      });
+      await notify(n.userId, { kind: "freeze", email: true, link: n.link, attempt: attempt + 1, title: `Reminder: ${n.title}`, body: n.body });
+      sent++;
+    }, log);
   }
   return sent;
 }

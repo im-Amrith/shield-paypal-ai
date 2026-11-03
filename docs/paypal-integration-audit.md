@@ -180,6 +180,17 @@ DeletePaymentToken; models SetupTokenRequest, VaultPaypalWalletRequest, VaultTok
   sandbox business account. The fallback works. Re-check with `scripts/fx-live-check.ts` after
   turning it on.
 
+## Records from another PayPal account (Nov 4)
+A local DB with invoices and deals from mock mode or an older PayPal app made a background job call PayPal
+for IDs this account doesn't have (`RESOURCE_NOT_FOUND`), and the error aborted the whole run ("+1 week" failed).
+- Every record that holds a PayPal ID stores `paypalLink` (mode + last 6 of the client ID). Reminders, payment
+  recording, capture/void/reauthorize, tracking and the saved-PayPal charge run only for records on the current
+  account (`onPayPal` in `lib/paypalLink.ts`); others skip PayPal and keep Shield's side, with a note on the record.
+- A 404 / `RESOURCE_NOT_FOUND` / `INVALID_RESOURCE_ID` marks the record "PayPal record missing" (issue + debug_id)
+  and PayPal isn't called for it again.
+- Each job and each record has its own try/catch; failures are logged with the debug_id and returned in the jobs
+  report. Tests: `tests/jobs.test.ts`.
+
 ## Known gaps (not changed)
 - The toolkit's trackers-batch call drops `carrier_name_other`, so tracking sent as `OTHER` through
   the toolkit can be rejected. The failure is recorded on the deal and never blocks the release.

@@ -1,10 +1,10 @@
-import { Clock, CalendarPlus, CalendarRange, CalendarDays, Play, RotateCcw, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
 import { paypalMode } from "@/lib/paypal";
 import { llmProvider } from "@/lib/llm";
 import { Card, PageHeader, Section, Avatar, Dot, HeroBand, HeroFigure, Hi, AlertRows, shortAgo } from "@/components/ui";
-import { ActionButton } from "@/components/client";
+import { DemoControls } from "@/components/DemoControls";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +14,6 @@ const WALK = [
   { who: "buyer", title: "Vault escrow", steps: "As Meera, create a Vault link. As Arjun, pay, then confirm delivery or report a problem." },
   { who: "ravi", title: "Guardian mode", steps: "As Ravi, Send money → “tax office” example. As Meera, block it from Home." },
   { who: "agent", title: "Resolve", steps: "As Ravi, Support → “earbuds never arrived”, then reply “that didn't work”. As Priya, approve the refund in the queue." },
-];
-
-const JUMPS = [
-  { hours: 1, label: "+1 hour", Icon: Clock },
-  { hours: 24, label: "+1 day", Icon: CalendarPlus },
-  { hours: 72, label: "+3 days", Icon: CalendarRange },
-  { hours: 168, label: "+1 week", Icon: CalendarDays },
 ];
 
 export default async function DemoPage() {
@@ -40,22 +33,7 @@ export default async function DemoPage() {
         Every jump also runs the background jobs: Vault auto-release and expiry, invoice reminders, freeze re-alerts and early warnings.
       </HeroBand>
 
-      <section aria-label="Time controls" className="mb-6 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-6 lg:gap-4">
-        {JUMPS.map((j) => (
-          <Card key={j.hours} className="flex flex-col gap-3 p-4">
-            <j.Icon size={26} aria-hidden className="text-accent" />
-            <ActionButton full variant="secondary" path="/api/demo" body={{ action: "advance", hours: j.hours }} done={j.label}>{j.label}</ActionButton>
-          </Card>
-        ))}
-        <Card className="flex flex-col gap-3 p-4">
-          <Play size={26} aria-hidden className="text-accent" />
-          <ActionButton full variant="secondary" path="/api/demo" body={{ action: "jobs" }} done="Jobs ran">Run jobs</ActionButton>
-        </Card>
-        <Card className="flex flex-col gap-3 p-4">
-          <RotateCcw size={26} aria-hidden className="text-danger" />
-          <ActionButton full variant="danger" path="/api/demo" body={{ action: "reset" }} confirm="Reset all demo data back to the seed?">Reset</ActionButton>
-        </Card>
-      </section>
+      <DemoControls />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
         <div className="min-w-0 space-y-6">

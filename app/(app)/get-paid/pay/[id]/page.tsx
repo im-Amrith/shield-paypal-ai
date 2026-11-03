@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 import { CircleCheck } from "lucide-react";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
-import { balance, debtBalance, debtPair, total } from "@/lib/collections";
+import { balance, debtBalance, debtPair, total, invoiceLinkNote } from "@/lib/collections";
 import type { Invoice } from "@/lib/types";
-import { Card, PageHeader, When, Avatar, Note, fmtMoney, relDays, HeroBand, HeroFigure, Hi, AlertBanner } from "@/components/ui";
+import { Card, PageHeader, When, Avatar, Note, fmtMoney, relDays, HeroBand, HeroFigure, Hi, AlertBanner, LinkNote } from "@/components/ui";
 import { ActionButton } from "@/components/client";
 import { buttonClass } from "@/components/styles";
 
@@ -35,6 +35,7 @@ function Lines({ inv }: { inv: Invoice }) {
       ))}
       {inv.amountPaid > 0 && <div className="flex justify-between gap-4 py-3 text-muted"><dt>Paid so far</dt><dd className="tabular">−{fmtMoney(inv.amountPaid, inv.currency)}</dd></div>}
       <div className="flex justify-between gap-4 py-3 text-[17px] font-extrabold"><dt>Balance {inv.id}</dt><dd className="tabular">{fmtMoney(due, inv.currency)}</dd></div>
+      {invoiceLinkNote(inv) && <div className="pb-3"><LinkNote note={invoiceLinkNote(inv)} /></div>}
     </dl>
   );
 }

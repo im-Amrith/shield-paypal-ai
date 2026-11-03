@@ -3,9 +3,9 @@ import { Activity } from "lucide-react";
 import { getUser } from "@/lib/session";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
-import { balance, debtBalance, debtPair, nextStep, total, LADDER } from "@/lib/collections";
+import { balance, debtBalance, debtPair, nextStep, total, LADDER, invoiceLinkNote } from "@/lib/collections";
 import type { Invoice } from "@/lib/types";
-import { Card, Pill, Money, PageHeader, Section, Empty, When, Track, Mark, fmtMoney, relDays, HeroBand, HeroGauge, Hi, type Tone } from "@/components/ui";
+import { Card, Pill, Money, PageHeader, Section, Empty, When, Track, Mark, fmtMoney, relDays, HeroBand, HeroGauge, Hi, LinkNote, type Tone } from "@/components/ui";
 import { InvoiceForm } from "@/components/InvoiceForm";
 import { clientEmail } from "@/lib/seed";
 import { buttonClass } from "@/components/styles";
@@ -90,6 +90,7 @@ export default async function GetPaid() {
                           {fee && <> · <span className="font-semibold text-fg">Late fee invoiced separately ({fee.id})</span></>}
                           {inv.feeFor && <> · Late fee for {inv.feeFor}, chased together with it</>}
                         </p>
+                        <LinkNote note={invoiceLinkNote(inv)} className="mt-1" />
                       </div>
                     </div>
                     {chasing && (

@@ -1,3 +1,4 @@
+import type { PayPalLink } from "./paypalLink";
 // Shared domain types for Shield.
 
 export type Persona = "meera" | "ravi" | "client" | "buyer" | "agent";
@@ -18,6 +19,7 @@ export interface User {
 
 export interface SavedPayPal {
   paymentTokenId: string;
+  paypalLink?: PayPalLink;
   customerId?: string;
   email?: string;
   savedAt: string;
@@ -88,7 +90,9 @@ export interface VaultDeal {
   disputeReason?: string;
   /** Tracking registered with PayPal against the capture (toolkit create_shipment_tracking, or Orders v2 /track).
    *  "pending" until the payment is released: PayPal doesn't accept tracking on an authorization. */
-  paypalTracking?: { status: "pending" | "shared" | "failed"; via: string; at: string; detail?: string };
+  paypalTracking?: { status: "pending" | "shared" | "failed" | "skipped"; via: string; at: string; detail?: string };
+  /** Which PayPal account the order/authorization belongs to (see lib/paypalLink.ts). */
+  paypalLink?: PayPalLink;
   autoReleaseHours: number;
   history: { at: string; event: string; detail?: string }[];
 }
@@ -114,6 +118,8 @@ export interface Invoice {
   paypalInvoiceId?: string;
   payLink?: string;
   reminders: { at: string; step: number; tone: string; subject: string; body: string }[];
+  /** Which PayPal account paypalInvoiceId belongs to (see lib/paypalLink.ts). */
+  paypalLink?: PayPalLink;
   offerPayLater: boolean;
 }
 
@@ -221,6 +227,8 @@ export interface ShopCart {
   /** Why the agent couldn't pay with the saved PayPal, so the cart waits for the popup. */
   fallbackReason?: string;
   history?: { at: string; event: string; detail: string }[];
+  /** Which PayPal account paypalOrderId belongs to. */
+  paypalLink?: PayPalLink;
 }
 
 export interface Reorder {

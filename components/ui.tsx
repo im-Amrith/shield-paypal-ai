@@ -1,6 +1,16 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Check, AlertTriangle, type LucideIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, AlertTriangle, Unlink, type LucideIcon } from "lucide-react";
+
+/** "Not linked to the current PayPal account" / "PayPal record missing" on a record (lib/paypalLink.ts). */
+export function LinkNote({ note, className = "" }: { note: string | null | undefined; className?: string }) {
+  if (!note) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[13px] font-semibold text-muted ${className}`} title="PayPal isn't called for this record. Shield still sends its own emails and updates.">
+      <Unlink size={13} aria-hidden /> {note}
+    </span>
+  );
+}
 
 /* ---------- Tones ---------- */
 

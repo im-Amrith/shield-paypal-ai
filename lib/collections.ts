@@ -4,6 +4,7 @@ import type { Invoice, Persona } from "./types";
 import { db, mutate, uid } from "./store";
 import { DAY, daysBetween, now, nowIso } from "./clock";
 import * as paypal from "./paypal";
+import { onPayPal, linkOf, linkNote, stampLink, noteSkip, perRecord, type PayPalLink } from "./paypalLink";
 import { complete } from "./llm";
 import { notify, sendEmail } from "./notify";
 
@@ -137,6 +138,7 @@ export async function createInvoice(freelancerId: Persona, input: {
     id, freelancerId, clientName: input.clientName, clientEmail: input.clientEmail, relationship: input.relationship,
     items: input.items.map((i) => ({ name: i.name, amount: +i.amount })), currency: input.currency, issuedAt: nowIso(), dueAt: due.toISOString(), lateFeePercent: input.lateFeePercent,
     status: "sent", amountPaid: 0, paypalInvoiceId: pp.invoiceId, payLink: pp.link, reminders: [], offerPayLater: input.offerPayLater,
+    paypalLink: stampLink(),
   };
   mutate((d) => {
     d.invoices.unshift(inv);
@@ -164,8 +166,13 @@ export async function createLateFeeInvoice(invoiceId: string): Promise<Invoice |
   if (!feeId) return null;
   const due = new Date(now().getTime() + 7 * DAY);
   const itemName = `Late fee — ${inv.lateFeePercent}% of ${inv.id}, per agreed terms`;
-  let pp: Awaited<ReturnType<typeof paypal.createAndSendInvoice>>;
-  try {
+  // The original isn't on the current PayPal account (or PayPal lost it): the fee invoice is kept
+  // in Shield only, with the same note, instead of a PayPal invoice that points at nothing.
+  const origLink = invoiceLink(inv);
+  const offPayPal = linkNote(origLink);
+  let pp: Awaited<ReturnType<typeof paypal.createAndSendInvoice>> | null = null;
+  if (offPayPal) noteSkip(inv.id, `late-fee invoice kept in Shield (${offPayPal.toLowerCase()})`);
+  else try {
     pp = await paypal.createAndSendInvoice({
       number: `${feeId}-${Date.now().toString(36)}`, clientEmail: inv.clientEmail, clientName: inv.clientName, currency: inv.currency,
       items: [{ name: itemName, amount }], dueDate: due.toISOString().slice(0, 10),
@@ -181,7 +188,8 @@ export async function createLateFeeInvoice(invoiceId: string): Promise<Invoice |
   const fee: Invoice = {
     id: feeId, freelancerId: inv.freelancerId, clientName: inv.clientName, clientEmail: inv.clientEmail, relationship: inv.relationship,
     items: [{ name: itemName, amount }], currency: inv.currency, issuedAt: nowIso(), dueAt: due.toISOString(), lateFeePercent: 0,
-    status: "sent", amountPaid: 0, paypalInvoiceId: pp.invoiceId, payLink: pp.link, reminders: [], offerPayLater: inv.offerPayLater, feeFor: inv.id,
+    status: "sent", amountPaid: 0, paypalInvoiceId: pp?.invoiceId, payLink: pp?.link, reminders: [], offerPayLater: inv.offerPayLater, feeFor: inv.id,
+    paypalLink: pp ? stampLink() : origLink,
   };
   mutate((d) => {
     d.invoices.unshift(fee);
@@ -190,48 +198,67 @@ export async function createLateFeeInvoice(invoiceId: string): Promise<Invoice |
   return fee;
 }
 
-/** Background job: send whichever reminders are due. Idempotent. */
+/**
+ * Background job: send whichever reminders are due. Idempotent. Each invoice runs on its own: one
+ * failing invoice never stops the others. PayPal reminders go only to invoices on the current
+ * PayPal account; Shield's own reminder email goes out either way.
+ */
 export async function runCollections(): Promise<string[]> {
   const log: string[] = [];
   const at = now();
   for (const listed of db().invoices) {
     if (listed.feeFor) continue; // chased together with its original
-    const inv = db().invoices.find((i) => i.id === listed.id)!;
-    const step = nextStep(inv, at, debtPair(inv).fee);
-    if (!step) continue;
-    const freelancer = db().users.find((u) => u.id === inv.freelancerId)!;
-    if (step.tone === "handoff") {
-      mutate((d) => {
-        d.invoices.find((i) => i.id === inv.id)!.reminders.push({ at: nowIso(), step: step.step, tone: step.tone, subject: "Handed back to you", body: "" });
-      });
-      await notify(inv.freelancerId, { kind: "invoice", title: `${inv.id} is 3 weeks overdue`, body: `Reminders stopped after ${inv.reminders.length} attempts. Options: call ${inv.clientName}, offer a payment plan, or escalate.`, link: `/get-paid`, email: true });
-      log.push(`${inv.id}:handoff`);
-      continue;
-    }
-    let justCreated: Invoice | null = null;
-    if (step.tone === "final" && inv.lateFeePercent > 0 && isOpen(inv) && !inv.feeInvoiceId) {
-      try {
-        justCreated = await createLateFeeInvoice(inv.id);
-      } catch (e) {
-        // Retry on the next run: the final notice shouldn't go out without the fee invoice it names.
-        console.error(`[collections] late-fee invoice for ${inv.id} failed:`, (e as Error).message);
-        log.push(`${inv.id}:fee_failed`);
-        continue;
-      }
-    }
-    const fresh = db().invoices.find((i) => i.id === inv.id)!;
-    const fee = debtPair(fresh).fee;
-    const msg = await polish(draftReminder(fresh, step, freelancer.name, fee), fresh, step.tone, fee);
-    if (fresh.paypalInvoiceId && isOpen(fresh)) await paypal.remindInvoice(fresh.paypalInvoiceId, msg.subject, msg.body);
-    // A fee invoice PayPal just sent doesn't need a PayPal reminder in the same run.
-    if (fee?.paypalInvoiceId && isOpen(fee) && fee.id !== justCreated?.id) await paypal.remindInvoice(fee.paypalInvoiceId, msg.subject, msg.body);
-    await sendEmail(fresh.clientEmail, msg.subject, msg.body);
-    mutate((d) => {
-      d.invoices.find((i) => i.id === inv.id)!.reminders.push({ at: nowIso(), step: step.step, tone: step.tone, ...msg });
-    });
-    log.push(`${inv.id}:${step.tone}`);
+    await perRecord("collections", listed.id, () => remindOne(listed.id, at, log), log);
   }
   return log;
+}
+
+async function remindOne(invoiceId: string, at: Date, log: string[]): Promise<void> {
+  const inv = db().invoices.find((i) => i.id === invoiceId)!;
+  const step = nextStep(inv, at, debtPair(inv).fee);
+  if (!step) return;
+  const freelancer = db().users.find((u) => u.id === inv.freelancerId)!;
+  if (step.tone === "handoff") {
+    mutate((d) => {
+      d.invoices.find((i) => i.id === inv.id)!.reminders.push({ at: nowIso(), step: step.step, tone: step.tone, subject: "Handed back to you", body: "" });
+    });
+    await notify(inv.freelancerId, { kind: "invoice", title: `${inv.id} is 3 weeks overdue`, body: `Reminders stopped after ${inv.reminders.length} attempts. Options: call ${inv.clientName}, offer a payment plan, or escalate.`, link: `/get-paid`, email: true });
+    log.push(`${inv.id}:handoff`);
+    return;
+  }
+  let justCreated: Invoice | null = null;
+  if (step.tone === "final" && inv.lateFeePercent > 0 && isOpen(inv) && !inv.feeInvoiceId) {
+    try {
+      justCreated = await createLateFeeInvoice(inv.id);
+    } catch (e) {
+      // Retry on the next run: the final notice shouldn't go out without the fee invoice it names.
+      console.error(`[collections] late-fee invoice for ${inv.id} failed:`, (e as Error).message);
+      log.push(`${inv.id}:fee_failed`);
+      return;
+    }
+  }
+  const fresh = db().invoices.find((i) => i.id === inv.id)!;
+  const fee = debtPair(fresh).fee;
+  const msg = await polish(draftReminder(fresh, step, freelancer.name, fee), fresh, step.tone, fee);
+  if (fresh.paypalInvoiceId && isOpen(fresh))
+    await onPayPal(fresh.id, invoiceLink(fresh), markInvoice(fresh.id), () => paypal.remindInvoice(fresh.paypalInvoiceId!, msg.subject, msg.body));
+  // A fee invoice PayPal just sent doesn't need a PayPal reminder in the same run.
+  if (fee?.paypalInvoiceId && isOpen(fee) && fee.id !== justCreated?.id)
+    await onPayPal(fee.id, invoiceLink(fee), markInvoice(fee.id), () => paypal.remindInvoice(fee.paypalInvoiceId!, msg.subject, msg.body));
+  await sendEmail(fresh.clientEmail, msg.subject, msg.body);
+  mutate((d) => {
+    d.invoices.find((i) => i.id === inv.id)!.reminders.push({ at: nowIso(), step: step.step, tone: step.tone, ...msg });
+  });
+  log.push(`${inv.id}:${step.tone}`);
+}
+
+/** The invoice's PayPal account link, and how to store a change to it. */
+const invoiceLink = (inv: Invoice) => linkOf(inv, inv.paypalInvoiceId);
+const markInvoice = (id: string) => (link: PayPalLink) => mutate((d) => { d.invoices.find((i) => i.id === id)!.paypalLink = link; });
+
+/** For pages: why PayPal isn't used for this invoice, or null. */
+export function invoiceLinkNote(inv: Invoice): string | null {
+  return inv.paypalInvoiceId || inv.paypalLink ? linkNote(invoiceLink(inv)) : null;
 }
 
 /**
@@ -243,7 +270,9 @@ export async function recordPayment(invoiceId: string, amount: number, opts: { p
   if (!inv) throw new Error("Invoice not found");
   if (!(amount > 0) || amount > balance(inv) + 0.001) throw new Error("Invalid payment amount");
   if (inv.paypalInvoiceId && !opts.paidThroughPayPal)
-    await paypal.recordInvoicePayment(inv.paypalInvoiceId, amount, inv.currency, `${inv.amountPaid.toFixed(2)}+${amount.toFixed(2)}`).catch(() => undefined);
+    await onPayPal(inv.id, invoiceLink(inv), markInvoice(inv.id),
+      () => paypal.recordInvoicePayment(inv.paypalInvoiceId!, amount, inv.currency, `${inv.amountPaid.toFixed(2)}+${amount.toFixed(2)}`))
+      .catch((e) => console.error(`[collections] recording ${inv.id}'s payment on PayPal failed:`, (e as Error).message));
   mutate((d) => {
     const i = d.invoices.find((x) => x.id === invoiceId)!;
     i.amountPaid = +(i.amountPaid + amount).toFixed(2);

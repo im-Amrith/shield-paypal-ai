@@ -13,7 +13,8 @@ import { decideSpend } from "./policy";
 import { completeJSON, llmProvider } from "./llm";
 import * as paypal from "./paypal";
 import { notify } from "./notify";
-import { savedPayPalFor } from "./savedPaypal";
+import { savedPayPalFor, onSavedPayPal } from "./savedPaypal";
+import { onPayPal, linkOf, linkNote, stampLink, perRecord, LINK_NOTE, type PayPalLink } from "./paypalLink";
 
 export const CURRENCY = "USD";
 export const REORDER_DAYS = 30;
@@ -337,8 +338,17 @@ const describeCart = (cart: ShopCart) => `Shield shopping agent: ${cart.items.ma
 
 async function createCartOrder(cart: ShopCart): Promise<string> {
   const order = await paypal.createOrder({ amount: cart.total, currency: cart.currency, description: describeCart(cart), intent: "CAPTURE", referenceId: cart.id });
-  patchCart(cart.id, (c) => { c.paypalOrderId = order.id; });
+  patchCart(cart.id, (c) => { c.paypalOrderId = order.id; c.paypalLink = stampLink(); });
   return order.id;
+}
+
+/** The cart's PayPal account link, and how to store a change to it. */
+const cartLink = (cart: ShopCart) => linkOf(cart, cart.paypalOrderId);
+const markCart = (id: string) => (link: PayPalLink) => patchCart(id, (c) => { c.paypalLink = link; });
+
+/** For the page: why PayPal isn't used for this cart's order, or null. */
+export function cartLinkNote(cart: ShopCart): string | null {
+  return cart.paypalOrderId ? linkNote(cartLink(cart)) : null;
 }
 
 /**
@@ -382,9 +392,12 @@ export async function chargeWithSaved(id: string, userId?: Persona): Promise<Sho
     `${cart.currency} ${(spent + cart.total).toFixed(2)} of your ${cart.currency} ${policy.monthlyCap} monthly cap; agent not revoked`);
   let r: Awaited<ReturnType<typeof paypal.chargeSavedPayPal>>;
   try {
-    r = await paypal.chargeSavedPayPal({
-      vaultId: saved.paymentTokenId, amount: cart.total, currency: cart.currency, description: describeCart(cart), referenceId: cart.id, requestId: agentRequestId(cart.id),
-    });
+    // A token PayPal no longer has (404) is marked missing on the user and the cart uses the popup.
+    const res = await onSavedPayPal(cart.userId, (s) => paypal.chargeSavedPayPal({
+      vaultId: s.paymentTokenId, amount: cart.total, currency: cart.currency, description: describeCart(cart), referenceId: cart.id, requestId: agentRequestId(cart.id),
+    }));
+    if (!res.ok) return fallBackToPopup(id, `Saved PayPal not used: ${LINK_NOTE[res.state].toLowerCase()}. Pay in the PayPal window, and save PayPal again.`);
+    r = res.value;
   } catch (e) {
     if (e instanceof paypal.PayPalError && e.status < 500) {
       const info = paypal.paypalErrorInfo(e);
@@ -421,6 +434,7 @@ function recordPaid(id: string, p: { captureId: string; orderId?: string; via: N
     if (p.orderId) c.paypalOrderId = p.orderId;
     c.paidAt = nowIso();
     c.paidVia = p.via;
+    if (p.orderId) c.paypalLink = stampLink();
     delete c.agentChargePending;
     delete c.fallbackReason;
     const how = p.via === "saved_paypal" ? AGENT_PAID_LABEL : p.via === "paypal_checkout" ? "Paid in the PayPal window" : "Paid (simulated)";
@@ -476,7 +490,12 @@ export async function pay(userId: Persona, id: string, approvedOrderId?: string)
   if (!cart.paypalOrderId) throw new Error("Pay with the PayPal button first");
   if (approvedOrderId && approvedOrderId !== cart.paypalOrderId) throw new Error("That PayPal order doesn't belong to this cart. Click the PayPal button again.");
   recheck(cart);
-  const cap = await paypal.captureOrder(cart.paypalOrderId!);
+  const res = await onPayPal(cart.id, cartLink(cart), markCart(cart.id), () => paypal.captureOrder(cart.paypalOrderId!));
+  if (!res.ok) {
+    patchCart(id, (c) => { delete c.paypalOrderId; });
+    throw new Error(`${LINK_NOTE[res.state]} for this PayPal order. Click the PayPal button again for a new one.`);
+  }
+  const cap = res.value;
   return recordPaid(id, { captureId: cap.captureId, via: paypal.paypalMode() === "mock" ? "simulated" : "paypal_checkout" });
 }
 
@@ -533,49 +552,53 @@ export async function proposeReorder(userId: Persona, id: string): Promise<ShopC
 export async function tickReorders(): Promise<string[]> {
   const log: string[] = [];
   for (const due of (db().reorders ?? []).filter((x) => isDue(x) && !x.notifiedAt)) {
-    // Claim this cycle first, so overlapping job runs can't build (or pay) it twice.
-    const claimedAt = nowIso();
-    const claimed = mutate((d) => {
-      const r = (d.reorders ?? []).find((x) => x.id === due.id)!;
-      if (r.notifiedAt) return false;
-      r.notifiedAt = claimedAt;
-      return true;
-    });
-    if (!claimed) continue;
-    const policy = policyFor(due.userId);
-    const what = due.items.map((i) => i.title).join(", ");
-    if (!savedPayPalFor(due.userId) || policy.revoked) {
-      await notify(due.userId, { kind: "info", title: "Your monthly reorder is due", body: `${what}. ${policy.revoked ? "The agent is revoked, so it didn't build the cart." : "The agent can build the cart again within your caps."}`, link: "/shop" });
-      log.push(`reorder-due:${due.id}`);
-      continue;
-    }
-    let cart: ShopCart;
-    try {
-      cart = await proposeReorder(due.userId, due.id);
-    } catch (e) {
-      const pending = (db().carts ?? []).some((c) => c.reorderId === due.id && c.createdAt >= claimedAt && c.agentChargePending);
-      await notify(due.userId, {
-        kind: "info", title: "Your monthly reorder needs a look",
-        body: pending ? "PayPal didn't confirm the agent's charge yet. Open the cart and check with PayPal again; it can't be charged twice." : `The agent couldn't finish it: ${(e as Error).message}`,
-        link: "/shop",
-      });
-      log.push(`${pending ? "reorder-charge-pending" : "reorder-failed"}:${due.id}`);
-      continue;
-    }
-    const amt = `${cart.currency} ${cart.total.toFixed(2)}`;
-    if (cart.status === "paid" && cart.paidVia === "saved_paypal") {
-      await notify(due.userId, { kind: "info", title: `Your monthly reorder was paid: ${amt}, within your ${cart.currency} ${policy.autoApproveBelow} auto-approve limit`, body: `${AGENT_PAID_LABEL} · ${what}`, link: "/shop" });
-      log.push(`reorder-paid:${due.id}`);
-    } else if (cart.status === "pending_approval") {
-      await notify(due.userId, { kind: "info", title: `Your monthly reorder needs one tap: ${amt}`, body: `It's above your ${cart.currency} ${policy.autoApproveBelow} auto-approve limit, so the agent waits for you.`, link: "/shop" });
-      log.push(`reorder-approve:${due.id}`);
-    } else if (cart.status === "blocked") {
-      await notify(due.userId, { kind: "info", title: "Your monthly reorder was blocked by your caps", body: cart.reason, link: "/shop" });
-      log.push(`reorder-blocked:${due.id}`);
-    } else {
-      await notify(due.userId, { kind: "info", title: `Your monthly reorder is ready to pay: ${amt}`, body: cart.fallbackReason ?? "Pay in the PayPal window.", link: "/shop" });
-      log.push(`reorder-pay:${due.id}`);
-    }
+    await perRecord("reorders", due.id, () => reorderOne(due, log), log);
   }
   return log;
+}
+
+async function reorderOne(due: Reorder, log: string[]): Promise<void> {
+  // Claim this cycle first, so overlapping job runs can't build (or pay) it twice.
+  const claimedAt = nowIso();
+  const claimed = mutate((d) => {
+    const r = (d.reorders ?? []).find((x) => x.id === due.id)!;
+    if (r.notifiedAt) return false;
+    r.notifiedAt = claimedAt;
+    return true;
+  });
+  if (!claimed) return;
+  const policy = policyFor(due.userId);
+  const what = due.items.map((i) => i.title).join(", ");
+  if (!savedPayPalFor(due.userId) || policy.revoked) {
+    await notify(due.userId, { kind: "info", title: "Your monthly reorder is due", body: `${what}. ${policy.revoked ? "The agent is revoked, so it didn't build the cart." : "The agent can build the cart again within your caps."}`, link: "/shop" });
+    log.push(`reorder-due:${due.id}`);
+    return;
+  }
+  let cart: ShopCart;
+  try {
+    cart = await proposeReorder(due.userId, due.id);
+  } catch (e) {
+    const pending = (db().carts ?? []).some((c) => c.reorderId === due.id && c.createdAt >= claimedAt && c.agentChargePending);
+    await notify(due.userId, {
+      kind: "info", title: "Your monthly reorder needs a look",
+      body: pending ? "PayPal didn't confirm the agent's charge yet. Open the cart and check with PayPal again; it can't be charged twice." : `The agent couldn't finish it: ${(e as Error).message}`,
+      link: "/shop",
+    });
+    log.push(`${pending ? "reorder-charge-pending" : "reorder-failed"}:${due.id}`);
+    return;
+  }
+  const amt = `${cart.currency} ${cart.total.toFixed(2)}`;
+  if (cart.status === "paid" && cart.paidVia === "saved_paypal") {
+    await notify(due.userId, { kind: "info", title: `Your monthly reorder was paid: ${amt}, within your ${cart.currency} ${policy.autoApproveBelow} auto-approve limit`, body: `${AGENT_PAID_LABEL} · ${what}`, link: "/shop" });
+    log.push(`reorder-paid:${due.id}`);
+  } else if (cart.status === "pending_approval") {
+    await notify(due.userId, { kind: "info", title: `Your monthly reorder needs one tap: ${amt}`, body: `It's above your ${cart.currency} ${policy.autoApproveBelow} auto-approve limit, so the agent waits for you.`, link: "/shop" });
+    log.push(`reorder-approve:${due.id}`);
+  } else if (cart.status === "blocked") {
+    await notify(due.userId, { kind: "info", title: "Your monthly reorder was blocked by your caps", body: cart.reason, link: "/shop" });
+    log.push(`reorder-blocked:${due.id}`);
+  } else {
+    await notify(due.userId, { kind: "info", title: `Your monthly reorder is ready to pay: ${amt}`, body: cart.fallbackReason ?? "Pay in the PayPal window.", link: "/shop" });
+    log.push(`reorder-pay:${due.id}`);
+  }
 }

@@ -2,11 +2,11 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { Lock, Truck, PackageCheck, CircleCheck, PauseCircle, Link2, ShieldCheck } from "lucide-react";
 import { getUser } from "@/lib/session";
-import { getDeal, releaseEta, MAX_DEAL_DAYS } from "@/lib/vault";
+import { getDeal, releaseEta, MAX_DEAL_DAYS, dealLinkNote } from "@/lib/vault";
 import { estimateFees } from "@/lib/fx";
 import { paypalMode } from "@/lib/paypal";
 import { publicUrl } from "@/lib/url";
-import { Card, Pill, PageHeader, Section, Timeline, When, Track, KeyValues, Note, fmtMoney, HeroBand, HeroGauge, Hi, AlertBanner } from "@/components/ui";
+import { Card, Pill, PageHeader, Section, Timeline, When, Track, KeyValues, Note, fmtMoney, HeroBand, HeroGauge, Hi, AlertBanner, LinkNote } from "@/components/ui";
 import { VAULT_STEPS, vaultStage, vaultStatus } from "@/components/vaultStatus";
 import { ActionButton, CopyButton } from "@/components/client";
 import { ShipForm, DisputeForm } from "@/components/VaultForms";
@@ -78,7 +78,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <ActionButton variant="secondary" path="/api/vault" body={{ action: "resolve", id: deal.id, outcome: "refund_buyer" }} confirm={`Refund ${fmtMoney(deal.amount, deal.currency)} to the buyer?`}>Refund buyer</ActionButton>
       </> : undefined} />;
   } else if (deal.status === "released") {
-    next = <AlertBanner tone="success" Icon={CircleCheck} title="Paid to the seller" detail={<>PayPal capture <span className="tabular">{deal.captureId}</span></>} />;
+    next = <AlertBanner tone="success" Icon={CircleCheck} title="Paid to the seller" detail={deal.captureId ? <>PayPal capture <span className="tabular">{deal.captureId}</span></> : <>Released in Shield. No PayPal capture: {dealLinkNote(deal) ?? "no PayPal hold"}.</>} />;
   }
 
   return (
@@ -102,6 +102,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             ? <Pill tone="success">Tracking shared with PayPal</Pill>
             : deal.paypalTracking.status === "pending"
               ? <Pill tone="neutral">Tracking goes to PayPal on release</Pill>
+              : deal.paypalTracking.status === "skipped"
+              ? <Pill tone="neutral">Tracking kept in Shield</Pill>
               : <Pill tone="danger">PayPal didn&apos;t accept the tracking</Pill>}
           <span className="text-muted">{deal.paypalTracking.status === "shared" ? deal.paypalTracking.via : deal.paypalTracking.detail}</span>
         </p>
@@ -140,6 +142,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
               <li>Either side can cancel before shipping; nothing is charged</li>
             </ul>
           </Card>
+          <LinkNote note={dealLinkNote(deal)} />
           <Note>PayPal {paypalMode()}{deal.paypalOrderId ? <> · order <span className="tabular">{deal.paypalOrderId}</span></> : null}{deal.authorizationId ? <> · authorization <span className="tabular">{deal.authorizationId}</span></> : null}</Note>
         </aside>
       </div>

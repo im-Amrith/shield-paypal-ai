@@ -5,5 +5,6 @@ import { runJobs } from "@/lib/jobs";
 export async function GET(req: Request) {
   const key = new URL(req.url).searchParams.get("key");
   if (process.env.CRON_SECRET && key !== process.env.CRON_SECRET) return NextResponse.json({ ok: false }, { status: 401 });
-  return NextResponse.json({ ok: true, log: await runJobs() });
+  // Always 200 with the run report: per-record failures are in `errors`, never a failed request.
+  return NextResponse.json({ ok: true, ...(await runJobs()) });
 }

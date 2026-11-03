@@ -3,10 +3,10 @@ import { getUser } from "@/lib/session";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
 import { paypalMode } from "@/lib/paypal";
-import { policyFor, spentThisMonth, productSource, isDue, nextDue, AGENT_PAID_LABEL } from "@/lib/shop";
+import { policyFor, spentThisMonth, productSource, isDue, nextDue, AGENT_PAID_LABEL, cartLinkNote } from "@/lib/shop";
 import { savedPayPalView, type SavedPayPalView } from "@/lib/savedPaypal";
 import type { ShopCart } from "@/lib/types";
-import { Card, Pill, PageHeader, Section, Empty, When, Mark, Note, HeroBand, HeroGauge, Hi, KeyValues, fmtMoney, type Tone } from "@/components/ui";
+import { Card, Pill, PageHeader, Section, Empty, When, Mark, Note, HeroBand, HeroGauge, Hi, KeyValues, fmtMoney, LinkNote, type Tone } from "@/components/ui";
 import { ActionButton } from "@/components/client";
 import { PayPalButtons, PayPalProvider, SavePayPalButtons } from "@/components/PayPalPay";
 import { NeedForm, RevokeSwitch, CapsForm } from "@/components/ShopForms";
@@ -36,8 +36,9 @@ function SavedPayPalCard({ saved, revoked, autoApproveBelow }: { saved: SavedPay
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 font-extrabold"><Wallet size={18} aria-hidden className="text-accent" /> PayPal saved{saved.email ? <span className="font-semibold text-muted"> · <span className="break-all">{saved.email}</span></span> : null}</h2>
+            <LinkNote note={saved.note} className="mt-1" />
             <p className="mt-1 text-[14px] text-muted">
-              {revoked ? "The agent is revoked, so it can't use it." : <>The agent pays on its own up to {fmtMoney(autoApproveBelow, "USD", 0)} a cart, and after your one tap above that, always within your caps. Saved <When iso={saved.savedAt} date />.</>}
+              {saved.note ? "The agent can't use it, so carts wait for the PayPal window. Remove it and save PayPal again." : revoked ? "The agent is revoked, so it can't use it." : <>The agent pays on its own up to {fmtMoney(autoApproveBelow, "USD", 0)} a cart, and after your one tap above that, always within your caps. Saved <When iso={saved.savedAt} date />.</>}
             </p>
           </div>
           <ActionButton variant="secondary" path="/api/shop" body={{ action: "vault-remove" }} confirm="Remove the saved PayPal? The agent will ask you to pay in the PayPal window again.">Remove</ActionButton>
@@ -129,6 +130,7 @@ function CartCard({ cart, revoked }: { cart: ShopCart; revoked: boolean }) {
             {" "}<When iso={cart.paidAt!} /> · PayPal capture <span className="tabular break-all">{cart.captureId}</span>
           </p>
         )}
+        <LinkNote note={cartLinkNote(cart)} className="mt-2" />
         {cart.history && cart.history.length > 0 && (
           <details className="mt-3 text-[14px]">
             <summary className="cursor-pointer font-semibold text-muted hover:text-fg">What the agent did</summary>

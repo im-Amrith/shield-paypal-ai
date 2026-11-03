@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the demo story against a running server.
-# Usage: BASE=http://localhost:3000 bash scripts/smoke.sh
+# Usage (it resets demo data and sends email, so use a separate mock-mode server and data file):
+#   SHIELD_FORCE_MOCK=1 SHIELD_DB_PATH=/tmp/smoke-db.json RESEND_API_KEY= npx next start -p 3300
+#   BASE=http://localhost:3300 bash scripts/smoke.sh
+# It refuses to run against a server that isn't in PayPal mock mode.
 set -euo pipefail
 BASE=${BASE:-http://localhost:3000}
 J=$(mktemp -d)
@@ -31,6 +34,15 @@ loc=$(hop -X POST -d 'persona=ravi&next=%2F%2Fevil.example' "$BASE/api/session")
 curl -s -D - -o /dev/null -X POST -d 'action=signout' "$BASE/api/session" | grep -qi 'set-cookie: persona=;' && ok "sign out clears the cookie"
 
 for p in meera ravi buyer client agent; do as $p; done
+# Guard: everything below resets the demo data, creates invoices and sends email. Only run it
+# against a server started with SHIELD_FORCE_MOCK=1 (ideally with its own SHIELD_DB_PATH), never
+# against a dev server running on your sandbox keys and your data/db.json.
+if ! has meera /demo "PayPal mock mode"; then
+  echo "✗ $BASE isn't in PayPal mock mode. The smoke test resets the demo data and sends email, so it stops here."
+  echo "  Start a separate server: SHIELD_FORCE_MOCK=1 SHIELD_DB_PATH=/tmp/smoke-db.json RESEND_API_KEY= npx next start -p 3300"
+  echo "  then run: BASE=http://localhost:3300 bash scripts/smoke.sh"
+  exit 1
+fi
 post meera /api/demo '{"action":"reset"}' >/dev/null
 
 echo "Pages"
@@ -48,7 +60,7 @@ id=$(post meera /api/vault '{"action":"create","title":"Canon 200D","amount":320
 post buyer /api/vault "{\"action\":\"authorize\",\"id\":\"$id\"}" | field 'd.status' | grep -q authorized && ok "buyer authorized hold"
 post meera /api/vault "{\"action\":\"ship\",\"id\":\"$id\",\"trackingNumber\":\"EZ1\",\"carrier\":\"India Post\"}" >/dev/null
 post meera /api/vault "{\"action\":\"deliver\",\"id\":\"$id\"}" >/dev/null
-post meera /api/demo '{"action":"advance","hours":73}' | field 'd.jobs.join(",")' | grep -q "released:$id" && ok "auto-released after 72h"
+post meera /api/demo '{"action":"advance","hours":73}' | field 'd.jobs.log.join(",")' | grep -q "released:$id" && ok "auto-released after 72h"
 [ "$(page buyer /vault/$id)" = 200 ] && ok "deal page renders"
 
 post meera /api/vault "{\"action\":\"ship\",\"id\":\"$id\",\"trackingNumber\":\"EZ1\",\"carrier\":\"India Post\"}" | grep -q "Can't ship" && ok "can't ship twice"
@@ -86,7 +98,8 @@ post ravi /api/guardian '{"action":"pay","payee":"KSEB Electricity","amount":24,
 
 echo "Collections"
 inv=$(post meera /api/invoices '{"action":"create","clientName":"Dana Brooks","clientEmail":"dana@northwind.demo","relationship":"regular","items":[{"name":"Logo","amount":800}],"currency":"USD","dueInDays":14,"lateFeePercent":2,"offerPayLater":true}' | field 'd.id')
-post meera /api/demo '{"action":"advance","hours":384}' | field 'd.jobs.join(",")' | grep -q "$inv:friendly" && ok "friendly reminder after due date"
+post meera /api/demo '{"action":"advance","hours":384}' | field 'd.jobs.log.join(",")' | grep -q "$inv:friendly" && ok "friendly reminder after due date"
+post meera /api/demo '{"action":"jobs"}' | field 'd.jobs.summary' | grep -q "^Ran 5 jobs" && ok "a jobs run answers with a summary line"
 post client /api/invoices "{\"action\":\"pay\",\"id\":\"$inv\",\"amount\":400}" | field 'd.status' | grep -q partially_paid && ok "client paid half"
 [ "$(page client /get-paid/pay/$inv)" = 200 ] && ok "client pay page renders"
 

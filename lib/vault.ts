@@ -9,6 +9,7 @@ import { PayPalError, HONOR_PERIOD_DAYS, AUTHORIZATION_PERIOD_DAYS } from "./pay
 import { notify } from "./notify";
 import { estimateFees } from "./fx";
 import { viaToolkit } from "./toolkit";
+import { onPayPal, linkOf, linkNote, stampLink, noteSkip, perRecord, LINK_NOTE, type PayPalLink } from "./paypalLink";
 
 /** PayPal's carrier codes for the names sellers usually type; anything else is sent as OTHER. */
 export function paypalCarrier(name: string): string {
@@ -79,6 +80,7 @@ export async function checkoutOrder(id: string, buyerId: Persona): Promise<{ ord
     const d = x.vaultDeals.find((v) => v.id === id)!;
     d.paypalOrderId = order.id;
     d.orderCreatedAt = nowIso();
+    d.paypalLink = stampLink(); // a fresh order on the current PayPal account
   });
   return { orderId: order.id };
 }
@@ -130,6 +132,15 @@ export async function ship(id: string, trackingNumber: string, carrier: string) 
 export async function shareTracking(id: string) {
   const deal = getDeal(id)!;
   if (!deal.trackingNumber) return;
+  // Checked first: a deal off the current PayPal account never gets a capture to attach tracking to.
+  const note = linkNote(dealLink(deal));
+  if (note) {
+    noteSkip(id, note === LINK_NOTE.missing ? "its PayPal record is missing" : "isn't on the current PayPal account");
+    update(id, (d) => {
+      d.paypalTracking = { status: "skipped", via: "not sent to PayPal", at: nowIso(), detail: `${note}. Tracking is kept in Shield only.` };
+    }, "tracking kept in Shield", note);
+    return;
+  }
   const carrier = paypalCarrier(deal.carrier || "");
   const captureId = deal.captureId;
   if (!captureId) {
@@ -192,14 +203,21 @@ async function capture(deal: VaultDeal): Promise<string> {
   }
 }
 
+/** The deal's PayPal account link, and how to store a change to it. */
+const dealLink = (deal: VaultDeal) => linkOf(deal, deal.paypalOrderId, deal.authorizationId, deal.captureId);
+const markDeal = (id: string) => (link: PayPalLink) => mutate((x) => { x.vaultDeals.find((v) => v.id === id)!.paypalLink = link; });
+
 async function release(id: string, reason: string) {
   const deal = getDeal(id)!;
-  const captureId = await capture(deal);
+  // A deal whose hold isn't on the current PayPal account (or that PayPal no longer has) is still
+  // released in Shield; there is just no PayPal capture to record.
+  const cap = deal.authorizationId ? await onPayPal(id, dealLink(deal), markDeal(id), () => capture(deal)) : null;
+  const captureId = cap?.ok ? cap.value : undefined;
   const out = update(id, (d) => {
     d.status = "released";
     d.captureId = captureId;
     d.releasedAt = nowIso();
-  }, "released", `${reason}. Capture ${captureId}`);
+  }, "released", `${reason}. ${captureId ? `Capture ${captureId}` : `No PayPal capture: ${cap && !cap.ok ? LINK_NOTE[cap.state] : "no PayPal hold"}`}`);
   // The buyer's payment, with its PayPal capture: Resolve can find it and refund it like any purchase.
   if (deal.buyerId)
     mutate((d) => {
@@ -233,7 +251,7 @@ export async function dispute(id: string, byId: Persona, reason: string) {
 export async function resolveDispute(id: string, outcome: "refund_buyer" | "pay_seller") {
   const deal = assert(getDeal(id), "resolve");
   if (outcome === "pay_seller") return release(id, "Dispute resolved for the seller");
-  await paypal.voidAuthorization(deal.authorizationId!);
+  if (deal.authorizationId) await onPayPal(id, dealLink(deal), markDeal(id), () => paypal.voidAuthorization(deal.authorizationId!));
   return update(id, (d) => {
     d.status = "voided";
   }, "voided", "Dispute resolved for the buyer; hold released back to the buyer");
@@ -242,32 +260,43 @@ export async function resolveDispute(id: string, outcome: "refund_buyer" | "pay_
 export async function cancel(id: string, byId: Persona) {
   const deal = assert(getDeal(id), "cancel");
   if (byId !== deal.sellerId && byId !== deal.buyerId) throw new Error("Not your deal");
-  if (deal.authorizationId) await paypal.voidAuthorization(deal.authorizationId);
+  if (deal.authorizationId) await onPayPal(id, dealLink(deal), markDeal(id), () => paypal.voidAuthorization(deal.authorizationId!));
   return update(id, (d) => {
     d.status = "voided";
   }, "voided", `Cancelled by ${byId} before shipping`);
 }
 
-/** Background job: auto-release and expiry. Safe to run repeatedly. */
+/** Background job: auto-release and expiry. Safe to run repeatedly; one failing deal never stops the others. */
 export async function tickVault(): Promise<string[]> {
   const done: string[] = [];
   const t = now();
-  for (const deal of db().vaultDeals) {
-    if (deal.status === "delivered" && deal.deliveredAt && hoursBetween(deal.deliveredAt, t) >= deal.autoReleaseHours) {
-      await release(deal.id, "Auto-released after the delivery window with no problem reported");
-      done.push(`released:${deal.id}`);
-    } else if (
-      ["authorized", "shipped"].includes(deal.status) && deal.authorizedAt &&
-      t.getTime() - new Date(deal.authorizedAt).getTime() > MAX_DEAL_DAYS * DAY
-    ) {
-      if (deal.authorizationId) await paypal.voidAuthorization(deal.authorizationId).catch(() => undefined);
-      update(deal.id, (d) => {
-        d.status = "expired";
-      }, "expired", `No delivery within ${MAX_DEAL_DAYS} days; hold released to the buyer`);
-      done.push(`expired:${deal.id}`);
-    }
+  for (const listed of db().vaultDeals) {
+    await perRecord("vault", listed.id, async () => {
+      const deal = getDeal(listed.id)!;
+      if (deal.status === "delivered" && deal.deliveredAt && hoursBetween(deal.deliveredAt, t) >= deal.autoReleaseHours) {
+        await release(deal.id, "Auto-released after the delivery window with no problem reported");
+        done.push(`released:${deal.id}`);
+      } else if (
+        ["authorized", "shipped"].includes(deal.status) && deal.authorizedAt &&
+        t.getTime() - new Date(deal.authorizedAt).getTime() > MAX_DEAL_DAYS * DAY
+      ) {
+        // PayPal drops an expired hold by itself, so a failed void doesn't stop the expiry.
+        if (deal.authorizationId)
+          await onPayPal(deal.id, dealLink(deal), markDeal(deal.id), () => paypal.voidAuthorization(deal.authorizationId!))
+            .catch((e) => console.error(`[vault] void for expired ${deal.id} failed:`, (e as Error).message));
+        update(deal.id, (d) => {
+          d.status = "expired";
+        }, "expired", `No delivery within ${MAX_DEAL_DAYS} days; hold released to the buyer`);
+        done.push(`expired:${deal.id}`);
+      }
+    }, done);
   }
   return done;
+}
+
+/** For the deal page: why PayPal isn't used for this deal, or null. */
+export function dealLinkNote(deal: VaultDeal): string | null {
+  return linkNote(dealLink(deal));
 }
 
 export function releaseEta(deal: VaultDeal): string | null {
