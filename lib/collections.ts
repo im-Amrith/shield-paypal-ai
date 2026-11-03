@@ -24,6 +24,24 @@ export const LADDER: LadderStep[] = [
 export const MIN_GAP_DAYS = 3; // never contact a client more often than this
 export const MAX_REMINDERS = 5; // ladder entries incl. heads-up and the handoff; then a human decides
 
+const isOpen = (inv?: Invoice) => !!inv && (inv.status === "sent" || inv.status === "partially_paid");
+
+/**
+ * An invoice and its late-fee invoice (if any), from either side. The collections agent treats
+ * the pair as one debt: it chases until both are paid.
+ */
+export function debtPair(inv: Invoice): { original: Invoice; fee?: Invoice } {
+  const all = db().invoices;
+  const original = inv.feeFor ? all.find((i) => i.id === inv.feeFor) ?? inv : inv;
+  const fee = original.feeInvoiceId ? all.find((i) => i.id === original.feeInvoiceId) : undefined;
+  return { original, fee };
+}
+
+/** What is still owed across the pair. */
+export function debtBalance(original: Invoice, fee?: Invoice): number {
+  return +((isOpen(original) ? balance(original) : 0) + (isOpen(fee) ? balance(fee!) : 0)).toFixed(2);
+}
+
 export function total(inv: Invoice): number {
   return +inv.items.reduce((s, i) => s + i.amount, 0).toFixed(2);
 }
@@ -31,9 +49,15 @@ export function balance(inv: Invoice): number {
   return +(total(inv) - inv.amountPaid).toFixed(2);
 }
 
-/** Which ladder step (if any) is due now. Pure function: easy to test. */
-export function nextStep(inv: Invoice, at: Date): LadderStep | null {
-  if (inv.status !== "sent" && inv.status !== "partially_paid") return null; // paid / cancelled / disputed: stop
+/**
+ * Which ladder step (if any) is due now. Pure function: easy to test. Pass the invoice's late-fee
+ * invoice as `fee` once there is one: the ladder keeps going until both are paid. Late-fee
+ * invoices are never chased on their own; their original carries the ladder.
+ */
+export function nextStep(inv: Invoice, at: Date, fee?: Invoice): LadderStep | null {
+  if (inv.feeFor) return null;
+  if (inv.status === "cancelled" || inv.status === "disputed" || inv.status === "draft") return null;
+  if (!isOpen(inv) && !isOpen(fee)) return null; // everything paid: stop
   if (inv.reminders.length >= MAX_REMINDERS) return null;
   const last = inv.reminders[inv.reminders.length - 1];
   if (last && daysBetween(last.at, at) < MIN_GAP_DAYS) return null;
@@ -49,13 +73,13 @@ export function lateFee(inv: Invoice): number {
   return inv.lateFeePercent > 0 ? +((total(inv) * inv.lateFeePercent) / 100).toFixed(2) : 0;
 }
 
-export function draftReminder(inv: Invoice, step: LadderStep, freelancerName: string): { subject: string; body: string } {
+export function draftReminder(inv: Invoice, step: LadderStep, freelancerName: string, fee?: Invoice): { subject: string; body: string } {
   const first = inv.clientName.split(/[ (]/)[0];
-  const amt = `${inv.currency} ${balance(inv).toFixed(2)}`;
+  const amt = `${inv.currency} ${debtBalance(inv, fee).toFixed(2)}`;
   const due = new Date(inv.dueAt).toDateString();
   const warm = inv.relationship !== "new";
   const payOpts = `You can pay by card or PayPal${inv.offerPayLater ? ", split it with Pay Later," : ""} or pay part now and the rest later — whatever is easiest.`;
-  const fee = lateFee(inv);
+  const feeAmt = lateFee(inv);
   switch (step.tone) {
     case "heads_up":
       return { subject: `Invoice ${inv.id} is due on ${due}`, body: `Hi ${first},\n\nA quick heads-up that invoice ${inv.id} for ${amt} is due on ${due}. ${payOpts}\n\nThanks,\n${freelancerName}` };
@@ -67,26 +91,26 @@ export function draftReminder(inv: Invoice, step: LadderStep, freelancerName: st
     case "firm":
       return {
         subject: `Overdue: invoice ${inv.id} (${amt})`,
-        body: `Hi ${first},\n\nInvoice ${inv.id} for ${amt} is now a week overdue. Could you let me know when it will be paid, or if anything is holding it up? ${payOpts}${fee ? `\n\nAs agreed in the invoice terms, a ${inv.lateFeePercent}% late fee applies from day 14.` : ""}\n\nBest,\n${freelancerName}`,
+        body: `Hi ${first},\n\nInvoice ${inv.id} for ${amt} is now a week overdue. Could you let me know when it will be paid, or if anything is holding it up? ${payOpts}${feeAmt ? `\n\nAs agreed in the invoice terms, a ${inv.lateFeePercent}% late fee applies from day 14.` : ""}\n\nBest,\n${freelancerName}`,
       };
     case "final":
       return {
         subject: `Final notice: invoice ${inv.id}`,
-        body: `Hi ${first},\n\nInvoice ${inv.id} is now two weeks overdue.${fee ? ` Per the agreed terms, a late fee of ${inv.currency} ${fee.toFixed(2)} has been added.` : ""} Please settle the balance within 7 days. If there's a problem with the work or the amount, reply and we'll sort it out together. ${payOpts}\n\nRegards,\n${freelancerName}`,
+        body: `Hi ${first},\n\nInvoice ${inv.id} is now two weeks overdue.${fee ? ` Per the agreed terms, a late fee of ${inv.currency} ${total(fee).toFixed(2)} has been invoiced separately as ${fee.id}.` : ""} Please settle the balance${fee ? ` of ${amt} across both invoices` : ""} within 7 days. If there's a problem with the work or the amount, reply and we'll sort it out together. ${payOpts}\n\nRegards,\n${freelancerName}`,
       };
     case "handoff":
-      return { subject: `Invoice ${inv.id}: next steps`, body: `Automated reminders have stopped for invoice ${inv.id}. ${freelancerName} will follow up personally.` };
+      return { subject: `Invoice ${inv.id}: next steps`, body: `Automated reminders have stopped for invoice ${inv.id}${fee ? ` and late-fee invoice ${fee.id}` : ""}. ${freelancerName} will follow up personally.` };
   }
 }
 
-async function polish(draft: { subject: string; body: string }, inv: Invoice, tone: string) {
+async function polish(draft: { subject: string; body: string }, inv: Invoice, tone: string, fee?: Invoice) {
   const text = await complete(
     `You rewrite payment reminder emails for a freelancer. Keep every fact, amount, date and invoice number exactly. Tone: ${tone}; relationship: ${inv.relationship}. Polite, never threatening, under 120 words. Return only the email body.`,
     [{ role: "user", content: draft.body }],
     { maxTokens: 300 },
   );
   // Guard: reject rewrites that drop the amount or invoice id.
-  if (text && text.includes(inv.id) && text.includes(balance(inv).toFixed(2))) return { ...draft, body: text.trim() };
+  if (text && text.includes(inv.id) && text.includes(debtBalance(inv, fee).toFixed(2)) && (!fee || text.includes(fee.id))) return { ...draft, body: text.trim() };
   return draft;
 }
 
@@ -115,12 +139,60 @@ export async function createInvoice(freelancerId: Persona, input: {
   return inv;
 }
 
+/**
+ * Create and send the separate late-fee invoice for `inv`, once. The original PayPal invoice is
+ * never rewritten: the fee is its own PayPal invoice (same client, due in 7 days, note pointing
+ * at the original). Never when no fee was agreed, never twice. The id is reserved before the
+ * PayPal call so overlapping job runs can't both create one; a PayPal failure releases it.
+ */
+export async function createLateFeeInvoice(invoiceId: string): Promise<Invoice | null> {
+  const inv = db().invoices.find((i) => i.id === invoiceId);
+  if (!inv || inv.feeFor || inv.lateFeePercent <= 0) return null;
+  const amount = lateFee(inv);
+  if (!(amount > 0)) return null;
+  const feeId = mutate((d) => {
+    const o = d.invoices.find((i) => i.id === invoiceId)!;
+    if (o.feeInvoiceId || d.invoices.some((i) => i.feeFor === invoiceId)) return null;
+    o.feeInvoiceId = `INV-${(d.invoices.length + 1001).toString()}`;
+    return o.feeInvoiceId;
+  });
+  if (!feeId) return null;
+  const due = new Date(now().getTime() + 7 * DAY);
+  const itemName = `Late fee — ${inv.lateFeePercent}% of ${inv.id}, per agreed terms`;
+  let pp: Awaited<ReturnType<typeof paypal.createAndSendInvoice>>;
+  try {
+    pp = await paypal.createAndSendInvoice({
+      number: `${feeId}-${Date.now().toString(36)}`, clientEmail: inv.clientEmail, clientName: inv.clientName, currency: inv.currency,
+      items: [{ name: itemName, amount }], dueDate: due.toISOString().slice(0, 10),
+      note: `Late fee for invoice ${inv.id}, as agreed in its terms. Invoice ${inv.id} is billed separately.`,
+      terms: `Payment due by ${due.toDateString()}.`,
+    });
+  } catch (e) {
+    mutate((d) => {
+      delete d.invoices.find((i) => i.id === invoiceId)!.feeInvoiceId;
+    });
+    throw e;
+  }
+  const fee: Invoice = {
+    id: feeId, freelancerId: inv.freelancerId, clientName: inv.clientName, clientEmail: inv.clientEmail, relationship: inv.relationship,
+    items: [{ name: itemName, amount }], currency: inv.currency, issuedAt: nowIso(), dueAt: due.toISOString(), lateFeePercent: 0,
+    status: "sent", amountPaid: 0, paypalInvoiceId: pp.invoiceId, payLink: pp.link, reminders: [], offerPayLater: inv.offerPayLater, feeFor: inv.id,
+  };
+  mutate((d) => {
+    d.invoices.unshift(fee);
+    d.invoices.find((i) => i.id === invoiceId)!.lateFeeApplied = true;
+  });
+  return fee;
+}
+
 /** Background job: send whichever reminders are due. Idempotent. */
 export async function runCollections(): Promise<string[]> {
   const log: string[] = [];
   const at = now();
-  for (const inv of db().invoices) {
-    const step = nextStep(inv, at);
+  for (const listed of db().invoices) {
+    if (listed.feeFor) continue; // chased together with its original
+    const inv = db().invoices.find((i) => i.id === listed.id)!;
+    const step = nextStep(inv, at, debtPair(inv).fee);
     if (!step) continue;
     const freelancer = db().users.find((u) => u.id === inv.freelancerId)!;
     if (step.tone === "handoff") {
@@ -131,17 +203,23 @@ export async function runCollections(): Promise<string[]> {
       log.push(`${inv.id}:handoff`);
       continue;
     }
-    if (step.tone === "final" && inv.lateFeePercent > 0 && !inv.lateFeeApplied) {
-      const fee = lateFee(inv);
-      mutate((d) => {
-        const i = d.invoices.find((x) => x.id === inv.id)!;
-        i.items.push({ name: `Late fee (${inv.lateFeePercent}%, per agreed terms)`, amount: fee });
-        i.lateFeeApplied = true;
-      });
+    let justCreated: Invoice | null = null;
+    if (step.tone === "final" && inv.lateFeePercent > 0 && isOpen(inv) && !inv.feeInvoiceId) {
+      try {
+        justCreated = await createLateFeeInvoice(inv.id);
+      } catch (e) {
+        // Retry on the next run: the final notice shouldn't go out without the fee invoice it names.
+        console.error(`[collections] late-fee invoice for ${inv.id} failed:`, (e as Error).message);
+        log.push(`${inv.id}:fee_failed`);
+        continue;
+      }
     }
     const fresh = db().invoices.find((i) => i.id === inv.id)!;
-    const msg = await polish(draftReminder(fresh, step, freelancer.name), fresh, step.tone);
-    if (fresh.paypalInvoiceId) await paypal.remindInvoice(fresh.paypalInvoiceId, msg.subject, msg.body);
+    const fee = debtPair(fresh).fee;
+    const msg = await polish(draftReminder(fresh, step, freelancer.name, fee), fresh, step.tone, fee);
+    if (fresh.paypalInvoiceId && isOpen(fresh)) await paypal.remindInvoice(fresh.paypalInvoiceId, msg.subject, msg.body);
+    // A fee invoice PayPal just sent doesn't need a PayPal reminder in the same run.
+    if (fee?.paypalInvoiceId && isOpen(fee) && fee.id !== justCreated?.id) await paypal.remindInvoice(fee.paypalInvoiceId, msg.subject, msg.body);
     await sendEmail(fresh.clientEmail, msg.subject, msg.body);
     mutate((d) => {
       d.invoices.find((i) => i.id === inv.id)!.reminders.push({ at: nowIso(), step: step.step, tone: step.tone, ...msg });
@@ -169,6 +247,10 @@ export async function recordPayment(invoiceId: string, amount: number, opts: { p
       counterparty: i.clientName, country: "US", type: "invoice", memo: i.id });
   });
   const fresh = db().invoices.find((i) => i.id === invoiceId)!;
-  await notify(fresh.freelancerId, { kind: "invoice", title: fresh.status === "paid" ? `${fresh.id} paid in full` : `Part payment on ${fresh.id}`, body: `${fresh.clientName} paid ${fresh.currency} ${amount.toFixed(2)}.`, link: "/get-paid" });
+  const { original, fee } = debtPair(fresh);
+  const left = debtBalance(original, fee);
+  const other = fresh.id === original.id ? fee : original;
+  const title = fresh.status !== "paid" ? `Part payment on ${fresh.id}` : left > 0 && other ? `${fresh.id} paid; ${other.id} still open` : `${original.id}${fee ? ` and ${fee.id}` : ""} paid in full`;
+  await notify(fresh.freelancerId, { kind: "invoice", title, body: `${fresh.clientName} paid ${fresh.currency} ${amount.toFixed(2)}.${left > 0 && other ? ` ${fresh.currency} ${left.toFixed(2)} left on ${other.id}.` : ""}`, link: "/get-paid" });
   return fresh;
 }

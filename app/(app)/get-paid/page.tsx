@@ -3,10 +3,11 @@ import { Activity } from "lucide-react";
 import { getUser } from "@/lib/session";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
-import { balance, nextStep, total, LADDER } from "@/lib/collections";
+import { balance, debtBalance, debtPair, nextStep, total, LADDER } from "@/lib/collections";
 import type { Invoice } from "@/lib/types";
 import { Card, Pill, Money, PageHeader, Section, Empty, When, Track, Mark, fmtMoney, relDays, HeroBand, HeroGauge, Hi, type Tone } from "@/components/ui";
 import { InvoiceForm } from "@/components/InvoiceForm";
+import { clientEmail } from "@/lib/seed";
 import { buttonClass } from "@/components/styles";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,8 @@ function status(inv: Invoice, at: Date): { label: string; tone: Tone } {
   return { label: "Sent", tone: "neutral" };
 }
 
-function nextLine(inv: Invoice, at: Date) {
-  const step = nextStep(inv, at);
+function nextLine(inv: Invoice, at: Date, fee?: Invoice) {
+  const step = nextStep(inv, at, fee);
   if (step) return `${TONE_LABEL[step.tone]} goes out on the next run`;
   const nxt = LADDER.find((s) => s.step > Math.max(-1, ...inv.reminders.map((r) => r.step)));
   if (!nxt) return "Reminders finished. You decide what happens next.";
@@ -56,7 +57,7 @@ export default async function GetPaid() {
           : "No invoices yet. Send one below and the agent takes it from there."}
       </HeroBand>
 
-      <section id="new" className="mb-8 scroll-mt-20"><InvoiceForm /></section>
+      <section id="new" className="mb-8 scroll-mt-20"><InvoiceForm defaultClientEmail={clientEmail()} /></section>
 
       <Section title="Invoices" className="!mb-0">
         {invoices.length ? (
@@ -64,6 +65,8 @@ export default async function GetPaid() {
             {invoices.map((inv) => {
               const st = status(inv, at);
               const reached = inv.reminders.length ? Math.max(...inv.reminders.map((r) => r.step)) + 1 : 0;
+              const { fee } = debtPair(inv);
+              const chasing = !inv.feeFor && inv.status !== "cancelled" && debtBalance(inv, fee) > 0;
               return (
                 <Card key={inv.id} as="article" className="overflow-hidden">
                   <div className="p-5">
@@ -84,13 +87,15 @@ export default async function GetPaid() {
                           Due <When iso={inv.dueAt} date /> ({relDays(inv.dueAt, at)})
                           {inv.amountPaid > 0 && inv.status !== "paid" && <> · {fmtMoney(inv.amountPaid, inv.currency)} of {fmtMoney(total(inv), inv.currency)} paid</>}
                           {inv.lateFeePercent ? ` · ${inv.lateFeePercent}% late fee agreed` : ""}
+                          {fee && <> · <span className="font-semibold text-fg">Late fee invoiced separately ({fee.id})</span></>}
+                          {inv.feeFor && <> · Late fee for {inv.feeFor}, chased together with it</>}
                         </p>
                       </div>
                     </div>
-                    {inv.status !== "paid" && inv.status !== "cancelled" && (
+                    {chasing && (
                       <div className="mt-4">
                         <Track steps={LADDER_STEPS} current={reached} />
-                        <p className="mt-3 text-[14px]">{nextLine(inv, at)}</p>
+                        <p className="mt-3 text-[14px]">{nextLine(inv, at, fee)}{fee && inv.status === "paid" ? ` (for the open late fee, ${fee.id})` : ""}</p>
                       </div>
                     )}
                   </div>

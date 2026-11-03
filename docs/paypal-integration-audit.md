@@ -19,7 +19,7 @@ REST reference instead, and this doc marks them that way.
 | Payments | `POST /v2/payments/authorizations/{id}/void` | plugin `VoidPayment` | OK; idempotency key added |
 | Payments | `POST /v2/payments/captures/{id}/refund` (REST + toolkit `create_refund`) | plugin `RefundRequest` | Body OK; **fixed** fake capture ids and status handling |
 | Tracking | toolkit `create_shipment_tracking` → `/v1/shipping/trackers-batch`; REST fallback | plugin `CreateOrderTracking` / `OrderTrackerRequest`, `ShipmentCarrier` | **Fixed:** wrong id and wrong carrier codes |
-| Invoicing | create / send / remind / payments / cancel (toolkit `cancel_sent_invoice`) | PayPal REST reference (not in plugin) | **Fixed:** payment recording; small body fixes |
+| Invoicing | create / send / remind / payments / cancel (toolkit `cancel_sent_invoice`) | PayPal REST reference (not in plugin) | **Fixed:** payment recording; small body fixes; late fee now billed as its own invoice (follow-up below) |
 | Webhooks | `POST /v1/notifications/verify-webhook-signature` | PayPal REST reference (not in plugin) | **Fixed:** re-serialized event |
 | JS SDK | `paypal.com/sdk/js` Smart Buttons | PayPal JS SDK v5 reference (not in plugin) | **Fixed:** loading race; added `onCancel` |
 | Disputes / get order | toolkit `list_disputes`, `get_order`; REST fallbacks | toolkit source | OK |
@@ -97,10 +97,28 @@ REST reference instead, and this doc marks them that way.
 - Added `onCancel`, so a closed popup shows "nothing was charged" instead of nothing at all.
 - It stays on v5 of the JS SDK, which is still supported; v6 would mean a different integration.
 
+## Fixed afterwards (Nov 3, follow-up)
+- **Late-fee mismatch: fixed.** Before, the final reminder added the agreed fee only to Shield's copy
+  of the invoice, so a client paying through PayPal paid the original amount. Now the original
+  PayPal invoice is never rewritten. `createLateFeeInvoice` (`lib/collections.ts`) creates and
+  sends a **separate PayPal invoice** for the fee:
+  - item "Late fee — <percent>% of <original>, per agreed terms", same client, due in 7 days, and
+    a note naming the original invoice;
+  - only when `lateFeePercent > 0`, and at most once per original. The fee invoice's id is reserved
+    before the PayPal call so overlapping job runs can't both create one, and a PayPal failure
+    releases it and retries the final notice on the next run.
+  - The two are linked with `feeInvoiceId` on the original and `feeFor` on the fee invoice.
+  - The collections agent treats the pair as one debt (`debtPair`, `debtBalance`,
+    `nextStep(inv, at, fee)`). It stops only when both are paid, never chases the fee invoice on
+    its own, and sends PayPal reminders for whichever of the two is still open.
+  - Each payment is recorded against the invoice it was for. In the UI, `recordPayment` and the
+    webhook, which maps `resource.id` to the invoice by its PayPal invoice ID, apply the payment
+    to that invoice alone. Payments made through PayPal are still never recorded on PayPal again.
+  - The original shows "Late fee invoiced separately (INV-xxxx)". The client pay page shows both
+    balances, with a pay button for each.
+  - Tests: `tests/collections.test.ts` (late-fee block) and `tests/webhook.test.ts`.
+
 ## Known gaps (not changed)
-- The late fee added in the final reminder is stored only in Shield, not on the PayPal invoice
-  (that would need a full `PUT /v2/invoicing/invoices/{id}`). A client paying through PayPal pays
-  the original amount.
 - The toolkit's trackers-batch call drops `carrier_name_other`, so tracking sent as `OTHER` through
   the toolkit can be rejected. The failure is recorded on the deal and never blocks the release.
 - The toolkit sends `capture_id` in the refund body as well as the path. That is the toolkit's

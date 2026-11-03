@@ -177,6 +177,13 @@ async function release(id: string, reason: string) {
     d.captureId = captureId;
     d.releasedAt = nowIso();
   }, "released", `${reason}. Capture ${captureId}`);
+  // The buyer's payment, with its PayPal capture: Resolve can find it and refund it like any purchase.
+  if (deal.buyerId)
+    mutate((d) => {
+      const seller = d.users.find((u) => u.id === deal.sellerId)?.name || deal.sellerId;
+      d.transactions.push({ id: uid("tx"), userId: deal.buyerId!, at: nowIso(), amount: deal.amount, currency: deal.currency, direction: "out",
+        counterparty: seller, country: "IN", type: "goods_services", memo: `Vault: ${deal.title}`, captureId });
+    });
   if (deal.trackingNumber) await shareTracking(id);
   await notify(deal.sellerId, { kind: "vault", title: `You've been paid for "${deal.title}"`, body: `${deal.currency} ${deal.amount} released (${reason.toLowerCase()}).`, link: `/vault/${id}`, email: true });
   return out;

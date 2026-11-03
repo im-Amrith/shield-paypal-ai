@@ -135,6 +135,25 @@ describe("PayPal Agent Toolkit wiring", () => {
     expect(saved.status).toBe("released");
   });
 
+  it("a released Vault payment can be refunded through Resolve, on its real capture", async () => {
+    fakeToolkit();
+    const { deal } = await vault.createDeal("meera", "Canon 200D camera", 320, "USD");
+    await vault.authorize(deal.id, "buyer");
+    await vault.ship(deal.id, "EZ123456789IN", "India Post");
+    await vault.confirmReceipt(deal.id, "buyer");
+    const captureId = vault.getDeal(deal.id)!.captureId!;
+    let c = await startCase("buyer", "Please refund my Canon 200D camera from Meera, it stopped working");
+    c = await escalateTier2(c.id);
+    const refund = c.actions.find((a) => a.tool === "issue_refund")!;
+    expect(refund.args).toMatchObject({ captureId, amount: 320 });
+    expect(refund.decision).toBe("needs_human"); // above the limit: a specialist approves it in the console
+    c = await humanDecision(c.id, refund.id, true);
+    // Mock-mode captures are MOCKCAP ids, which never go to PayPal; in the sandbox this is a real capture.
+    expect(captureId.startsWith("MOCKCAP")).toBe(true);
+    expect(c.actions.find((a) => a.id === refund.id)!.via).toMatch(/simulated/);
+    expect(calls.some((x) => x.tool === "create_refund")).toBe(false);
+  });
+
   it("a tracking rejection is recorded but doesn't undo the release", async () => {
     fakeToolkit({ create_shipment_tracking: { error: { message: "INVALID_TRACKING_NUMBER" } } });
     const { deal } = await vault.createDeal("meera", "Camera", 320, "USD");

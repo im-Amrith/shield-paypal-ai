@@ -15,7 +15,7 @@ Routes: `/` is the public landing page, `/signin` is the demo sign-in (five pers
 ## Run
 ```
 npm install
-npm test          # 103 vitest tests, all passing
+npm test          # 113 vitest tests, all passing
 # open http://localhost:3000 → "Open Shield" → pick a persona
 npm run eval      # labeled eval sets (rules mode); SHIELD_EVAL_LLM=1 to include LLM
 npm run dev
@@ -71,4 +71,4 @@ Stretch: traceable giving.
 - All money-moving agent actions go through `decideTool` / `decideSpend` in `lib/policy.ts`.
 - What's simulated (say so in UI + README): account limitation events (sandbox can't freeze), carrier delivery event, FX fees are estimates (no PayPal fee-quote API).
 - Don't use "PayPal" in the product name/logo.
-- PayPal audit (Nov 3): `docs/paypal-integration-audit.md`. Tracking needs a *capture* id, so Vault keeps it `pending` until release; carrier codes are PayPal's `ShipmentCarrier` values (`INDIA_POST`, `BLUEDART`, `DTDC_IN`…). Reauthorize only via `canReauthorize` (422, days 4–29, once). Money-moving calls use deterministic `PayPal-Request-Id`s; order creation doesn't. The webhook must pass the raw body to `verifyWebhookSignature` and never re-record a PayPal-paid invoice (`paidThroughPayPal`). `MOCKCAP_*` refunds are simulated when keys are set.
+- PayPal audit (Nov 3): `docs/paypal-integration-audit.md`. Tracking needs a *capture* id, so Vault keeps it `pending` until release; carrier codes are PayPal's `ShipmentCarrier` values (`INDIA_POST`, `BLUEDART`, `DTDC_IN`…). Reauthorize only via `canReauthorize` (422, days 4–29, once). Money-moving calls use deterministic `PayPal-Request-Id`s; order creation doesn't. The webhook must pass the raw body to `verifyWebhookSignature` and never re-record a PayPal-paid invoice (`paidThroughPayPal`). `MOCKCAP_*` refunds are simulated when keys are set. Late fee = a separate PayPal invoice (`createLateFeeInvoice`; `feeInvoiceId` ↔ `feeFor`), chased as one debt with its original (`debtPair`); never rewrite the original. Vault release records the buyer's transaction with the capture id (so Resolve can refund it). Live checks: `docs/live-sandbox-checklist.md`; `SANDBOX_BUYER_EMAIL` sets Dana's email.

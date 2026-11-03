@@ -2,6 +2,15 @@
 // father Ravi (retired, uses Guardian mode).
 import type { DB, Transaction } from "./types";
 
+/**
+ * Dana's email. Set SANDBOX_BUYER_EMAIL to your PayPal sandbox *personal* account so invoices land
+ * in its sandbox inbox and can be paid there; otherwise an undelegated .demo address, which no
+ * mail service can ever deliver to a real person.
+ */
+export function clientEmail(): string {
+  return process.env.SANDBOX_BUYER_EMAIL?.trim() || "dana@northwind.demo";
+}
+
 const DAY = 86400_000;
 
 function rng(seed: number) {
@@ -81,7 +90,7 @@ export function seedDB(base = Date.now()): DB {
     users: [
       { id: "meera", name: "Meera Nair", email: "meera.nair@shield.demo", role: "freelancer", currency: "INR", guardianOf: "ravi" },
       { id: "ravi", name: "Ravi Nair", email: "ravi.nair@shield.demo", role: "senior", currency: "INR", guardedBy: "meera" },
-      { id: "client", name: "Dana Brooks (Northwind Studio)", email: "dana@northwind.demo", role: "client", currency: "USD" },
+      { id: "client", name: "Dana Brooks (Northwind Studio)", email: clientEmail(), role: "client", currency: "USD" },
       { id: "buyer", name: "Arjun Menon", email: "arjun.menon@shield.demo", role: "buyer", currency: "INR" },
       { id: "agent", name: "Priya (Support)", email: "priya@shield.demo", role: "support", currency: "USD" },
     ],

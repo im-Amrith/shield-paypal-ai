@@ -38,11 +38,13 @@ Open http://localhost:3000, press **Open Shield** and pick a demo person (you ca
 ## Tests and evals
 
 ```bash
-npm test                      # 103 unit/integration tests (vitest)
+npm test                      # 113 unit/integration tests (vitest)
 npm run eval                  # labeled eval sets, rules mode
 SHIELD_EVAL_LLM=1 npm run eval   # same sets with your LLM key
 BASE=http://localhost:3000 bash scripts/smoke.sh   # end-to-end demo story against a running server
 ```
+
+Manual checks against the real PayPal sandbox (popup, real captures, sandbox inbox): [docs/live-sandbox-checklist.md](docs/live-sandbox-checklist.md).
 
 Eval sets: scam check (38 dev + 14 held-out messages), support triage (30), Guardian holds (18), shopping agent (10 requests against different caps; the cap-safety target is 100%: a cart the agent may pay never breaks a cap or the stated budget). The dev sets were written alongside the rules and score 100%; the **held-out** scam set scores about 50% recall with rules alone. That gap is why the LLM layer exists, and its target (80% recall) is enforced only when an LLM key is set.
 
@@ -53,6 +55,8 @@ LLM results (Nov 3, Groq via the OpenAI-compatible path, `SHIELD_EVAL_LLM=1 npm 
 | rules only (no key) | recall 50.0% · accuracy 71.4% · precision 100% | 100% | baseline |
 | **`openai/gpt-oss-120b`** (kept) | **recall 100% · accuracy 92.9% · precision 88.9%** | 96.7% | all targets met, 0 fallbacks to rules |
 | `llama-3.3-70b-versatile` | not run | not run | Groq returns 404 `model_not_found` for this key, so every call would fall back to rules and repeat the baseline |
+
+The triage set was written alongside the rules, so the rules' 100% there is optimistic; the held-out scam set is the fair comparison (rules 50% recall vs `openai/gpt-oss-120b` 100%).
 
 Calls with a screenshot use `OPENAI_VISION_MODEL` (default `qwen/qwen3.8-27b`, checked live with a real image). On Groq the client sends at most 3 images (each at most 4 MB) and temperature 0.2. It never sends `logprobs`, `logit_bias`, `n` or `messages[].name`. On a 429 it retries once after `Retry-After` (up to 20 s); after that, or if the wait is longer, it falls back to the rules.
 

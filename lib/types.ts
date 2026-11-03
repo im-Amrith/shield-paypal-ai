@@ -92,6 +92,10 @@ export interface Invoice {
   dueAt: string;
   lateFeePercent: number; // agreed up front, 0 = none
   lateFeeApplied?: boolean;
+  /** On an original invoice: the separate late-fee invoice created at the final reminder. */
+  feeInvoiceId?: string;
+  /** On a late-fee invoice: the original invoice it belongs to. Chased together with it, never on its own. */
+  feeFor?: string;
   status: "draft" | "sent" | "paid" | "partially_paid" | "cancelled" | "disputed";
   amountPaid: number;
   paypalInvoiceId?: string;

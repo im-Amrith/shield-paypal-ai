@@ -168,7 +168,7 @@ export default async function Home() {
                   </div>
                   <dl className="mt-4 divide-y divide-border border-t border-border text-[14px]">
                     {i.items.map((it, k) => <div key={k} className="flex justify-between gap-4 py-2"><dt>{it.name}</dt><dd className="tabular font-semibold">{fmtMoney(it.amount, i.currency)}</dd></div>)}
-                    <div className="flex justify-between gap-4 py-2 text-muted"><dt>Terms</dt><dd className="text-right">{i.lateFeePercent ? `${i.lateFeePercent}% late fee after the due date` : "No late fee"}{i.offerPayLater ? " · Pay Later available" : ""}</dd></div>
+                    <div className="flex justify-between gap-4 py-2 text-muted"><dt>Terms</dt><dd className="text-right">{i.feeFor ? `Late fee for ${i.feeFor}, per its agreed terms` : i.feeInvoiceId ? `Late fee invoiced separately (${i.feeInvoiceId})` : i.lateFeePercent ? `${i.lateFeePercent}% late fee after the due date` : "No late fee"}{i.offerPayLater ? " · Pay Later available" : ""}</dd></div>
                     <div className="flex justify-between gap-4 py-2 text-muted"><dt>Reminders received</dt><dd className="tabular">{i.reminders.length}</dd></div>
                   </dl>
                 </Card>

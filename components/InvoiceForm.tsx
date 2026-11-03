@@ -10,10 +10,10 @@ interface Compare { options: Option[]; recommended: string; reason: string; live
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
 /** New invoice: the form and the FX copilot as two cards, side by side on desktop. */
-export function InvoiceForm() {
+export function InvoiceForm({ defaultClientEmail = "dana@northwind.demo" }: { defaultClientEmail?: string }) {
   const router = useRouter();
   const [f, setF] = useState({
-    clientName: "Dana Brooks (Northwind Studio)", clientEmail: "dana@northwind.demo", relationship: "regular",
+    clientName: "Dana Brooks (Northwind Studio)", clientEmail: defaultClientEmail, relationship: "regular",
     item: "Brand identity, final files", price: "800", clientCurrency: "USD", dueInDays: "14", lateFeePercent: "2", offerPayLater: true,
   });
   const [cmp, setCmp] = useState<Compare | null>(null);
