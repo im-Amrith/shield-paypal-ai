@@ -112,6 +112,17 @@ describe("Late fee as a separate invoice", () => {
     expect(final.body).toContain(fee.id);
   });
 
+  it("charges the fee on the balance still unpaid when it's applied", async () => {
+    const inv = await createInvoice("meera", input);
+    await recordPayment(inv.id, 300); // part paid before the final notice
+    await runDays(29);
+    const fee = byId(byId(inv.id).feeInvoiceId!);
+    expect(fee.items[0].amount).toBe(10); // 2% of the 500 left, not of the 800 total
+    expect(fee.items[0].name).toBe(`Late fee — 2% of ${inv.id}, per agreed terms`);
+    await recordPayment(inv.id, 500); // paying the rest later doesn't change the fee
+    expect(byId(fee.id).items[0].amount).toBe(10);
+  });
+
   it("never creates a fee invoice when no fee was agreed", async () => {
     const inv = await createInvoice("meera", { ...input, lateFeePercent: 0 });
     await runDays(40);

@@ -38,7 +38,7 @@ Open http://localhost:3000, press **Open Shield** and pick a demo person (you ca
 ## Tests and evals
 
 ```bash
-npm test                      # 113 unit/integration tests (vitest)
+npm test                      # 114 unit/integration tests (vitest)
 npm run eval                  # labeled eval sets, rules mode
 SHIELD_EVAL_LLM=1 npm run eval   # same sets with your LLM key
 BASE=http://localhost:3000 bash scripts/smoke.sh   # end-to-end demo story against a running server

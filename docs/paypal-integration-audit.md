@@ -104,6 +104,8 @@ REST reference instead, and this doc marks them that way.
   sends a **separate PayPal invoice** for the fee:
   - item "Late fee — <percent>% of <original>, per agreed terms", same client, due in 7 days, and
     a note naming the original invoice;
+  - the amount is `lateFeePercent` of the balance still unpaid when the fee is applied, as the
+    invoice terms state (a part-paid invoice pays the fee on the rest only);
   - only when `lateFeePercent > 0`, and at most once per original. The fee invoice's id is reserved
     before the PayPal call so overlapping job runs can't both create one, and a PayPal failure
     releases it and retries the final notice on the next run.

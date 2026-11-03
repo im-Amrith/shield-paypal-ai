@@ -69,8 +69,13 @@ export function nextStep(inv: Invoice, at: Date, fee?: Invoice): LadderStep | nu
   return filtered.length ? filtered[filtered.length - 1] : null;
 }
 
+/**
+ * The agreed late fee: lateFeePercent of the balance still unpaid when it's applied (the final
+ * reminder), as the invoice terms say ("applies to balances unpaid 14 days after the due date").
+ * A client who already paid part owes the fee on the rest only.
+ */
 export function lateFee(inv: Invoice): number {
-  return inv.lateFeePercent > 0 ? +((total(inv) * inv.lateFeePercent) / 100).toFixed(2) : 0;
+  return inv.lateFeePercent > 0 ? +((Math.max(0, balance(inv)) * inv.lateFeePercent) / 100).toFixed(2) : 0;
 }
 
 export function draftReminder(inv: Invoice, step: LadderStep, freelancerName: string, fee?: Invoice): { subject: string; body: string } {
