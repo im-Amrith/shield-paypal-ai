@@ -98,7 +98,9 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         <p className="-mt-2 mb-5 flex flex-wrap items-center gap-2 text-[14px]">
           {deal.paypalTracking.status === "shared"
             ? <Pill tone="success">Tracking shared with PayPal</Pill>
-            : <Pill tone="danger">PayPal didn&apos;t accept the tracking</Pill>}
+            : deal.paypalTracking.status === "pending"
+              ? <Pill tone="neutral">Tracking goes to PayPal on release</Pill>
+              : <Pill tone="danger">PayPal didn&apos;t accept the tracking</Pill>}
           <span className="text-muted">{deal.paypalTracking.status === "shared" ? deal.paypalTracking.via : deal.paypalTracking.detail}</span>
         </p>
       )}

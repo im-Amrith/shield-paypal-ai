@@ -151,11 +151,16 @@ export async function runCollections(): Promise<string[]> {
   return log;
 }
 
-export async function recordPayment(invoiceId: string, amount: number) {
+/**
+ * Record a payment on an invoice. `paidThroughPayPal` is set by the webhook: PayPal already
+ * recorded that payment on its invoice, so recording it again there would double it.
+ */
+export async function recordPayment(invoiceId: string, amount: number, opts: { paidThroughPayPal?: boolean } = {}) {
   const inv = db().invoices.find((i) => i.id === invoiceId);
   if (!inv) throw new Error("Invoice not found");
   if (!(amount > 0) || amount > balance(inv) + 0.001) throw new Error("Invalid payment amount");
-  if (inv.paypalInvoiceId) await paypal.recordInvoicePayment(inv.paypalInvoiceId, amount, inv.currency).catch(() => undefined);
+  if (inv.paypalInvoiceId && !opts.paidThroughPayPal)
+    await paypal.recordInvoicePayment(inv.paypalInvoiceId, amount, inv.currency, `${inv.amountPaid.toFixed(2)}+${amount.toFixed(2)}`).catch(() => undefined);
   mutate((d) => {
     const i = d.invoices.find((x) => x.id === invoiceId)!;
     i.amountPaid = +(i.amountPaid + amount).toFixed(2);

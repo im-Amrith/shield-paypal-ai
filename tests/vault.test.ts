@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { resetDB, db } from "@/lib/store";
 import { advanceClock, HOUR, DAY } from "@/lib/clock";
 import * as vault from "@/lib/vault";
+import { canReauthorize, paypalCarrier } from "@/lib/vault";
+import { PayPalError } from "@/lib/paypal";
 
 async function shipped() {
   const { deal } = await vault.createDeal("meera", "Canon 200D camera", 320, "USD", 72);
@@ -65,6 +67,36 @@ describe("Vault escrow", () => {
   });
   it("keeps an audit trail", async () => {
     const id = await shipped();
-    expect(db().vaultDeals.find((d) => d.id === id)!.history.map((h) => h.event)).toEqual(["created", "authorized", "shipped", "tracking shared with PayPal"]);
+    expect(db().vaultDeals.find((d) => d.id === id)!.history.map((h) => h.event)).toEqual(["created", "authorized", "shipped", "tracking saved for release"]);
+  });
+});
+
+describe("PayPal authorization rules (honor period / reauthorize)", () => {
+  const day = 24 * 3600 * 1000;
+  const at = new Date("2026-11-20T12:00:00Z");
+  const authorized = (days: number) => new Date(at.getTime() - days * day).toISOString();
+  const err422 = new PayPalError("capture failed", 422, JSON.stringify({ name: "UNPROCESSABLE_ENTITY", details: [{ issue: "AUTHORIZATION_EXPIRED" }] }));
+
+  it("reads PayPal's issue code off the error body", () => {
+    expect(err422.issue).toBe("AUTHORIZATION_EXPIRED");
+  });
+
+  it("reauthorizes only on days 4–29, once, and only for a 422", () => {
+    expect(canReauthorize({ authorizedAt: authorized(2) }, err422, at)).toBe(false); // inside the 3-day honor period
+    expect(canReauthorize({ authorizedAt: authorized(5) }, err422, at)).toBe(true);
+    expect(canReauthorize({ authorizedAt: authorized(29) }, err422, at)).toBe(true);
+    expect(canReauthorize({ authorizedAt: authorized(30) }, err422, at)).toBe(false); // needs a new authorization
+    expect(canReauthorize({ authorizedAt: authorized(5), reauthorizedAt: authorized(1) }, err422, at)).toBe(false);
+    expect(canReauthorize({ authorizedAt: authorized(5) }, new PayPalError("bad", 400, "{}"), at)).toBe(false);
+    expect(canReauthorize({ authorizedAt: authorized(5) }, new Error("network"), at)).toBe(false);
+  });
+
+  it("maps carrier names to PayPal's carrier codes", () => {
+    expect(paypalCarrier("India Post")).toBe("INDIA_POST");
+    expect(paypalCarrier("Blue Dart")).toBe("BLUEDART");
+    expect(paypalCarrier("DTDC")).toBe("DTDC_IN");
+    expect(paypalCarrier("Delhivery")).toBe("IND_DELHIVERY");
+    expect(paypalCarrier("FedEx")).toBe("FEDEX");
+    expect(paypalCarrier("Some Courier")).toBe("OTHER");
   });
 });

@@ -10,7 +10,7 @@ import { retrieve, KB, type Article } from "./kb";
 import { complete, completeJSON, llmProvider } from "./llm";
 import { decideTool, TOOLS } from "./policy";
 import * as paypal from "./paypal";
-import { viaToolkit } from "./toolkit";
+import { viaToolkit, toolkitActive } from "./toolkit";
 import { explainLimitation, liftLimitation } from "./risk";
 import { notify } from "./notify";
 
@@ -292,10 +292,18 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
       }
       case "issue_refund": {
         const cur = a.currency || "USD", note = `Refund for case ${caseId}`;
-        const run = await viaToolkit("create_refund",
-          { capture_id: a.captureId || "MOCKCAP", amount: { currency_code: cur, value: Number(a.amount).toFixed(2) }, note_to_payer: note },
-          (o) => ({ refundId: String(o.id), status: String(o.status) }),
-          () => paypal.refundCapture(a.captureId || "MOCKCAP", Number(a.amount), cur, note));
+        // Seeded demo payments carry MOCK capture ids that don't exist at PayPal: refunding one in
+        // the sandbox would 404, so those are simulated (and labeled so); real captures go to PayPal.
+        const fakeCapture = !a.captureId || String(a.captureId).startsWith("MOCK");
+        const run = !(fakeCapture && toolkitActive())
+          ? await viaToolkit("create_refund",
+            { capture_id: a.captureId || "MOCKCAP", amount: { currency_code: cur, value: Number(a.amount).toFixed(2) }, note_to_payer: note },
+            (o) => {
+              if (o.status === "FAILED" || o.status === "CANCELLED") throw new Error(`PayPal refund ${String(o.status).toLowerCase()}`);
+              return { refundId: String(o.id), status: String(o.status) };
+            },
+            () => paypal.refundCapture(a.captureId || "MOCKCAP", Number(a.amount), cur, note, action.id))
+          : { value: { refundId: `SIMREF-${action.id.slice(-6).toUpperCase()}`, status: "COMPLETED" }, via: "create_refund · simulated (demo payment has no PayPal capture)" };
         const r = run.value;
         via = run.via;
         mutate((d) => {

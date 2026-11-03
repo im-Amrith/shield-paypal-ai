@@ -5,7 +5,7 @@ import type { Persona, VaultDeal, VaultStatus } from "./types";
 import { db, mutate, uid } from "./store";
 import { HOUR, DAY, now, nowIso, hoursBetween } from "./clock";
 import * as paypal from "./paypal";
-import { PayPalError } from "./paypal";
+import { PayPalError, HONOR_PERIOD_DAYS, AUTHORIZATION_PERIOD_DAYS } from "./paypal";
 import { notify } from "./notify";
 import { estimateFees } from "./fx";
 import { viaToolkit } from "./toolkit";
@@ -14,7 +14,7 @@ import { viaToolkit } from "./toolkit";
 export function paypalCarrier(name: string): string {
   const n = name.toLowerCase().replace(/[^a-z]/g, "");
   const known: Record<string, string> = {
-    indiapost: "IND_INDIAPOST", speedpost: "IND_INDIAPOST", bluedart: "IND_BLUEDART", delhivery: "IND_DELHIVERY", dtdc: "IND_DTDC", ekart: "IND_EKART",
+    indiapost: "INDIA_POST", speedpost: "INDIA_POST", bluedart: "BLUEDART", delhivery: "IND_DELHIVERY", dtdc: "DTDC_IN", ekart: "EKART",
     ups: "UPS", usps: "USPS", fedex: "FEDEX", dhl: "DHL", dhlexpress: "DHL",
   };
   return known[n] || "OTHER";
@@ -98,22 +98,30 @@ export async function ship(id: string, trackingNumber: string, carrier: string) 
 }
 
 /**
- * Register the tracking number with PayPal against the deal's PayPal transaction (the capture
- * once released, the authorization before that). Seller protection relies on PayPal seeing it.
- * A failure here never blocks shipping; it's recorded on the deal instead.
+ * Register the tracking number with PayPal. PayPal attaches tracking to a *capture* (Orders v2
+ * /track requires capture_id; trackers-batch wants the capture's transaction id), so while the
+ * money is only authorized the tracking is kept as "pending" and sent right after release.
+ * Seller protection relies on PayPal seeing it. A failure never blocks shipping or release;
+ * it's recorded on the deal instead.
  */
 export async function shareTracking(id: string) {
   const deal = getDeal(id)!;
-  const transactionId = deal.captureId || deal.authorizationId;
-  if (!transactionId || !deal.trackingNumber) return;
+  if (!deal.trackingNumber) return;
   const carrier = paypalCarrier(deal.carrier || "");
+  const captureId = deal.captureId;
+  if (!captureId) {
+    update(id, (d) => {
+      d.paypalTracking = { status: "pending", via: "waiting for capture", at: nowIso(), detail: "Sent to PayPal when the payment is released (PayPal tracks captured payments, not holds)" };
+    }, "tracking saved for release");
+    return;
+  }
   try {
     const run = await viaToolkit("create_shipment_tracking",
-      { transaction_id: transactionId, tracking_number: deal.trackingNumber, carrier, status: "SHIPPED", order_id: deal.paypalOrderId },
+      { transaction_id: captureId, tracking_number: deal.trackingNumber, carrier, status: "SHIPPED" },
       () => ({ status: "SHIPPED" }),
-      () => paypal.addTracking({ transactionId, trackingNumber: deal.trackingNumber!, carrier, orderId: deal.paypalOrderId }));
+      () => paypal.addTracking({ captureId, orderId: deal.paypalOrderId!, trackingNumber: deal.trackingNumber!, carrier, carrierNameOther: deal.carrier }));
     update(id, (d) => {
-      d.paypalTracking = { status: "shared", via: run.via, at: nowIso(), detail: `${carrier} ${deal.trackingNumber} on ${transactionId}` };
+      d.paypalTracking = { status: "shared", via: run.via, at: nowIso(), detail: `${carrier} ${deal.trackingNumber} on capture ${captureId}` };
     }, "tracking shared with PayPal", run.via);
   } catch (e) {
     update(id, (d) => {
@@ -134,19 +142,30 @@ export async function markDelivered(id: string) {
   return out;
 }
 
+/**
+ * Whether a failed capture should be retried through a reauthorization. PayPal (Payments v2):
+ * the honor period is 3 days; reauthorize is allowed once, on days 4–29; after that a new
+ * authorization is needed. Only a 422 (business rule) qualifies: a 400 is a malformed request
+ * and a reauthorization wouldn't fix it, and inside the honor period reauthorize itself is refused.
+ */
+export function canReauthorize(deal: Pick<VaultDeal, "authorizedAt" | "reauthorizedAt">, err: unknown, at = now()): boolean {
+  if (!(err instanceof PayPalError) || err.status !== 422) return false;
+  if (!deal.authorizedAt || deal.reauthorizedAt) return false;
+  const days = (at.getTime() - new Date(deal.authorizedAt).getTime()) / DAY;
+  return days > HONOR_PERIOD_DAYS && days <= AUTHORIZATION_PERIOD_DAYS;
+}
+
 async function capture(deal: VaultDeal): Promise<string> {
   try {
     return (await paypal.captureAuthorization(deal.authorizationId!)).captureId;
   } catch (e) {
-    // Past the 3-day honor period PayPal may require a reauthorization first.
-    if (e instanceof PayPalError && (e.status === 422 || e.status === 400)) {
-      const re = await paypal.reauthorize(deal.authorizationId!, deal.amount, deal.currency);
-      mutate((x) => {
-        x.vaultDeals.find((v) => v.id === deal.id)!.authorizationId = re.authorizationId;
-      });
-      return (await paypal.captureAuthorization(re.authorizationId)).captureId;
-    }
-    throw e;
+    if (!canReauthorize(deal, e)) throw e;
+    const re = await paypal.reauthorize(deal.authorizationId!, deal.amount, deal.currency);
+    update(deal.id, (d) => {
+      d.authorizationId = re.authorizationId;
+      d.reauthorizedAt = nowIso();
+    }, "reauthorized", `Honor period over; capture refused (${(e as PayPalError).issue || "422"}), new authorization ${re.authorizationId}`);
+    return (await paypal.captureAuthorization(re.authorizationId)).captureId;
   }
 }
 
@@ -158,6 +177,7 @@ async function release(id: string, reason: string) {
     d.captureId = captureId;
     d.releasedAt = nowIso();
   }, "released", `${reason}. Capture ${captureId}`);
+  if (deal.trackingNumber) await shareTracking(id);
   await notify(deal.sellerId, { kind: "vault", title: `You've been paid for "${deal.title}"`, body: `${deal.currency} ${deal.amount} released (${reason.toLowerCase()}).`, link: `/vault/${id}`, email: true });
   return out;
 }

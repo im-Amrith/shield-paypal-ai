@@ -109,26 +109,40 @@ describe("PayPal Agent Toolkit wiring", () => {
     expect(a.via).toBe("list_disputes · mock (no PayPal keys)");
   });
 
-  it("Vault shares tracking with PayPal through create_shipment_tracking", async () => {
+  it("Vault keeps tracking pending while the money is only authorized (PayPal tracks captures)", async () => {
     fakeToolkit();
     const { deal } = await vault.createDeal("meera", "Canon 200D camera", 320, "USD");
     await vault.authorize(deal.id, "buyer");
-    const d = await vault.ship(deal.id, "EZ123456789IN", "India Post");
-    const call = calls.find((x) => x.tool === "create_shipment_tracking")!;
-    expect(call.args).toMatchObject({ tracking_number: "EZ123456789IN", carrier: "IND_INDIAPOST", status: "SHIPPED", transaction_id: d.authorizationId });
+    await vault.ship(deal.id, "EZ123456789IN", "India Post");
+    expect(calls.some((x) => x.tool === "create_shipment_tracking")).toBe(false);
     const saved = vault.getDeal(deal.id)!;
-    expect(saved.paypalTracking?.status).toBe("shared");
-    expect(saved.paypalTracking?.via).toBe("PayPal Agent Toolkit · create_shipment_tracking");
+    expect(saved.paypalTracking?.status).toBe("pending");
     expect(saved.status).toBe("shipped");
   });
 
-  it("a tracking rejection is recorded but doesn't undo shipping", async () => {
+  it("Vault shares tracking through create_shipment_tracking against the capture on release", async () => {
+    fakeToolkit();
+    const { deal } = await vault.createDeal("meera", "Canon 200D camera", 320, "USD");
+    await vault.authorize(deal.id, "buyer");
+    await vault.ship(deal.id, "EZ123456789IN", "India Post");
+    const d = await vault.confirmReceipt(deal.id, "buyer");
+    const saved = vault.getDeal(deal.id)!;
+    const call = calls.find((x) => x.tool === "create_shipment_tracking")!;
+    expect(call.args).toMatchObject({ tracking_number: "EZ123456789IN", carrier: "INDIA_POST", status: "SHIPPED", transaction_id: saved.captureId });
+    expect(call.args.transaction_id).not.toBe(d.authorizationId);
+    expect(saved.paypalTracking?.status).toBe("shared");
+    expect(saved.paypalTracking?.via).toBe("PayPal Agent Toolkit · create_shipment_tracking");
+    expect(saved.status).toBe("released");
+  });
+
+  it("a tracking rejection is recorded but doesn't undo the release", async () => {
     fakeToolkit({ create_shipment_tracking: { error: { message: "INVALID_TRACKING_NUMBER" } } });
     const { deal } = await vault.createDeal("meera", "Camera", 320, "USD");
     await vault.authorize(deal.id, "buyer");
     await vault.ship(deal.id, "X1", "Some Courier");
+    await vault.confirmReceipt(deal.id, "buyer");
     const saved = vault.getDeal(deal.id)!;
-    expect(saved.status).toBe("shipped");
+    expect(saved.status).toBe("released");
     expect(saved.paypalTracking?.status).toBe("failed");
     expect(saved.paypalTracking?.detail).toMatch(/INVALID_TRACKING_NUMBER/);
   });

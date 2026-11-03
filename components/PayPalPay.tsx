@@ -34,16 +34,25 @@ export function PayPalButtons({ orderId, currency, intent, path, body, mockLabel
         createOrder: () => orderId,
         onApprove: async (data: { orderID: string }) => {
           try {
+            setErr(null);
             await api(path, { ...JSON.parse(bodyKey), orderId: data.orderID });
             router.refresh();
           } catch (e) { setErr((e as Error).message); }
         },
+        onCancel: () => setErr("Payment cancelled. Nothing was charged; you can try again."),
         onError: (e: Error) => setErr(e?.message || "PayPal error"),
       }).render(ref.current);
     };
-    const src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=${currency}&intent=${intent}`;
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) { render(); return; }
+    // JS SDK v5. intent and currency must match the server-created order (AUTHORIZE for Vault, CAPTURE for /shop).
+    const qs = new URLSearchParams({ "client-id": clientId, currency, intent, components: "buttons" });
+    const src = `https://www.paypal.com/sdk/js?${qs}`;
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
+    if (existing) {
+      // Another button on the page may still be loading the same script: wait for it.
+      if ((window as unknown as Record<string, unknown>)[ns]) render();
+      else existing.addEventListener("load", render, { once: true });
+      return () => existing.removeEventListener("load", render);
+    }
     const s = document.createElement("script");
     s.src = src;
     s.dataset.namespace = ns;

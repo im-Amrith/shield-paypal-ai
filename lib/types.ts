@@ -64,6 +64,8 @@ export interface VaultDeal {
   paypalOrderId?: string;
   authorizationId?: string;
   authorizedAt?: string;
+  /** Set when the hold was reauthorized after PayPal's 3-day honor period (allowed once, days 4–29). */
+  reauthorizedAt?: string;
   captureId?: string;
   trackingNumber?: string;
   carrier?: string;
@@ -71,8 +73,9 @@ export interface VaultDeal {
   deliveredAt?: string;
   releasedAt?: string;
   disputeReason?: string;
-  /** Tracking registered with PayPal (toolkit create_shipment_tracking or the Add Tracking API). */
-  paypalTracking?: { status: "shared" | "failed"; via: string; at: string; detail?: string };
+  /** Tracking registered with PayPal against the capture (toolkit create_shipment_tracking, or Orders v2 /track).
+   *  "pending" until the payment is released: PayPal doesn't accept tracking on an authorization. */
+  paypalTracking?: { status: "pending" | "shared" | "failed"; via: string; at: string; detail?: string };
   autoReleaseHours: number;
   history: { at: string; event: string; detail?: string }[];
 }

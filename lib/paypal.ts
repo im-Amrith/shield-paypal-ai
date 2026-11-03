@@ -28,25 +28,45 @@ async function token(): Promise<string> {
 }
 
 export class PayPalError extends Error {
+  /** PayPal's machine-readable reason, e.g. `AUTHORIZATION_EXPIRED` (from `details[0].issue`, else `name`). */
+  public issue?: string;
   constructor(message: string, public status: number, public body: string) {
     super(message);
+    this.issue = issueOf(body);
   }
 }
 
-async function call<T>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+function issueOf(body: string): string | undefined {
+  try {
+    const j = JSON.parse(body) as { name?: string; details?: { issue?: string }[] };
+    return j.details?.[0]?.issue || j.name;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One REST call. `requestId` is sent as PayPal-Request-Id: money-moving calls pass a key derived
+ * from what they act on (e.g. `capture-<authId>`), so a retry or a double click returns the first
+ * result instead of moving money twice. Other writes get a random one; GETs get none.
+ */
+async function call<T>(method: string, path: string, body?: unknown, opts: { requestId?: string; retried?: boolean } = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${await token()}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
-      "PayPal-Request-Id": crypto.randomUUID(),
-      ...extraHeaders,
+      ...(method === "GET" ? {} : { "PayPal-Request-Id": opts.requestId || crypto.randomUUID() }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  if (res.status === 401 && !opts.retried) {
+    tokenCache = null; // token revoked or rotated early: fetch a fresh one, once
+    return call<T>(method, path, body, { ...opts, retried: true });
+  }
   const text = await res.text();
-  if (!res.ok) throw new PayPalError(`PayPal ${method} ${path} failed (${res.status})`, res.status, text);
+  if (!res.ok) throw new PayPalError(`PayPal ${method} ${path} failed (${res.status}${issueOf(text) ? ` ${issueOf(text)}` : ""})`, res.status, text);
   return (text ? JSON.parse(text) : {}) as T;
 }
 
@@ -65,63 +85,87 @@ export async function createOrder(opts: {
   if (paypalMode() === "mock") return { id: mockId("MOCKORDER"), status: "CREATED" };
   const o = await call<{ id: string; status: string; links: { rel: string; href: string }[] }>("POST", "/v2/checkout/orders", {
     intent: opts.intent,
-    purchase_units: [{ reference_id: opts.referenceId, description: opts.description.slice(0, 127), amount: money(opts.amount, opts.currency) }],
+    purchase_units: [{ reference_id: opts.referenceId, custom_id: opts.referenceId.slice(0, 127), description: opts.description.slice(0, 127), amount: money(opts.amount, opts.currency) }],
   });
   return { id: o.id, status: o.status, approveUrl: o.links.find((l) => l.rel === "approve" || l.rel === "payer-action")?.href };
 }
 
-export async function authorizeOrder(orderId: string): Promise<{ authorizationId: string; status: string }> {
+/** Statuses (AuthorizationStatus / CaptureStatus) that mean no money is held or moved. */
+const AUTH_FAILED = new Set(["DENIED", "VOIDED"]);
+const CAPTURE_FAILED = new Set(["DECLINED", "FAILED"]);
+
+/** PayPal honors an authorization for 3 days; it can be reauthorized on days 4–29, once (Payments v2). */
+export const HONOR_PERIOD_DAYS = 3;
+export const AUTHORIZATION_PERIOD_DAYS = 29;
+
+export async function authorizeOrder(orderId: string): Promise<{ authorizationId: string; status: string; expiresAt?: string }> {
   if (paypalMode() === "mock") return { authorizationId: mockId("MOCKAUTH"), status: "CREATED" };
-  const o = await call<{ purchase_units: { payments: { authorizations: { id: string; status: string }[] } }[] }>(
-    "POST", `/v2/checkout/orders/${orderId}/authorize`, {},
+  const o = await call<{ purchase_units?: { payments?: { authorizations?: { id: string; status: string; expiration_time?: string }[] } }[] }>(
+    "POST", `/v2/checkout/orders/${orderId}/authorize`, {}, { requestId: `authorize-${orderId}` },
   );
-  const a = o.purchase_units[0].payments.authorizations[0];
-  return { authorizationId: a.id, status: a.status };
+  const a = o.purchase_units?.[0]?.payments?.authorizations?.[0];
+  if (!a) throw new PayPalError("Authorize returned no authorization", 502, JSON.stringify(o));
+  if (AUTH_FAILED.has(a.status)) throw new PayPalError(`PayPal ${a.status.toLowerCase()} the authorization`, 422, JSON.stringify(o));
+  return { authorizationId: a.id, status: a.status, expiresAt: a.expiration_time };
 }
 
 export async function captureAuthorization(authorizationId: string): Promise<{ captureId: string; status: string }> {
   if (paypalMode() === "mock") return { captureId: mockId("MOCKCAP"), status: "COMPLETED" };
-  const c = await call<{ id: string; status: string }>("POST", `/v2/payments/authorizations/${authorizationId}/capture`, { final_capture: true });
+  const c = await call<{ id: string; status: string }>("POST", `/v2/payments/authorizations/${authorizationId}/capture`, { final_capture: true },
+    { requestId: `capture-${authorizationId}` });
+  if (CAPTURE_FAILED.has(c.status)) throw new PayPalError(`PayPal ${c.status.toLowerCase()} the capture`, 422, JSON.stringify(c));
   return { captureId: c.id, status: c.status };
 }
 
 export async function voidAuthorization(authorizationId: string): Promise<{ status: string }> {
   if (paypalMode() === "mock") return { status: "VOIDED" };
-  await call("POST", `/v2/payments/authorizations/${authorizationId}/void`);
+  await call("POST", `/v2/payments/authorizations/${authorizationId}/void`, undefined, { requestId: `void-${authorizationId}` });
   return { status: "VOIDED" };
 }
 
 export async function reauthorize(authorizationId: string, amount: number, currency: string): Promise<{ authorizationId: string }> {
   if (paypalMode() === "mock") return { authorizationId: mockId("MOCKAUTH") };
-  const a = await call<{ id: string }>("POST", `/v2/payments/authorizations/${authorizationId}/reauthorize`, { amount: money(amount, currency) });
+  const a = await call<{ id: string; status: string }>("POST", `/v2/payments/authorizations/${authorizationId}/reauthorize`, { amount: money(amount, currency) },
+    { requestId: `reauthorize-${authorizationId}` });
+  if (AUTH_FAILED.has(a.status)) throw new PayPalError(`PayPal ${a.status.toLowerCase()} the reauthorization`, 422, JSON.stringify(a));
   return { authorizationId: a.id };
 }
 
-export async function refundCapture(captureId: string, amount: number, currency: string, note: string): Promise<{ refundId: string; status: string }> {
+export async function refundCapture(captureId: string, amount: number, currency: string, note: string, ref?: string): Promise<{ refundId: string; status: string }> {
   if (paypalMode() === "mock") return { refundId: mockId("MOCKREF"), status: "COMPLETED" };
   const r = await call<{ id: string; status: string }>("POST", `/v2/payments/captures/${captureId}/refund`, {
-    amount: money(amount, currency), note_to_payer: note.slice(0, 255),
-  });
+    amount: money(amount, currency), note_to_payer: note.slice(0, 255), ...(ref ? { custom_id: ref.slice(0, 127) } : {}),
+  }, { requestId: ref ? `refund-${ref}` : undefined });
+  if (r.status === "FAILED" || r.status === "CANCELLED") throw new PayPalError(`PayPal refund ${r.status.toLowerCase()}`, 422, JSON.stringify(r));
   return { refundId: r.id, status: r.status };
 }
 
 /** Capture a CAPTURE-intent order after the payer approved it (shopping agent checkout). */
 export async function captureOrder(orderId: string): Promise<{ captureId: string; status: string }> {
   if (paypalMode() === "mock") return { captureId: mockId("MOCKCAP"), status: "COMPLETED" };
-  const o = await call<{ status: string; purchase_units: { payments: { captures: { id: string; status: string }[] } }[] }>(
-    "POST", `/v2/checkout/orders/${orderId}/capture`, {},
+  const o = await call<{ status: string; purchase_units?: { payments?: { captures?: { id: string; status: string }[] } }[] }>(
+    "POST", `/v2/checkout/orders/${orderId}/capture`, {}, { requestId: `capture-order-${orderId}` },
   );
-  const c = o.purchase_units[0].payments.captures[0];
+  const c = o.purchase_units?.[0]?.payments?.captures?.[0];
+  if (!c) throw new PayPalError("Capture returned no capture", 502, JSON.stringify(o));
+  if (CAPTURE_FAILED.has(c.status)) throw new PayPalError(`PayPal ${c.status.toLowerCase()} the payment`, 422, JSON.stringify(o));
   return { captureId: c.id, status: c.status };
 }
 
-// ---------- Add Tracking API (fallback when the Agent Toolkit isn't available) ----------
+// ---------- Order tracking (fallback when the Agent Toolkit isn't available) ----------
 
-export async function addTracking(t: { transactionId: string; trackingNumber: string; carrier: string; orderId?: string }): Promise<{ status: string }> {
+/**
+ * Orders v2 `POST /v2/checkout/orders/{id}/track`. PayPal tracks a *capture*: an authorization id
+ * isn't accepted, so Vault shares tracking once the payment is released. (The toolkit's
+ * create_shipment_tracking uses the older `/v1/shipping/trackers-batch` with the same capture id.)
+ */
+export async function addTracking(t: { captureId: string; orderId: string; trackingNumber: string; carrier: string; carrierNameOther?: string }): Promise<{ status: string }> {
   if (paypalMode() === "mock") return { status: "SHIPPED" };
-  await call("POST", "/v1/shipping/trackers-batch", {
-    trackers: [{ transaction_id: t.transactionId, tracking_number: t.trackingNumber, status: "SHIPPED", carrier: t.carrier }],
-  });
+  await call("POST", `/v2/checkout/orders/${t.orderId}/track`, {
+    capture_id: t.captureId, tracking_number: t.trackingNumber, carrier: t.carrier,
+    ...(t.carrier === "OTHER" ? { carrier_name_other: (t.carrierNameOther || "Other").slice(0, 64) } : {}),
+    notify_payer: false, // Shield already tells the buyer
+  }, { requestId: `track-${t.captureId}-${t.trackingNumber}` });
   return { status: "SHIPPED" };
 }
 
@@ -144,35 +188,48 @@ export async function createAndSendInvoice(inv: {
       currency_code: inv.currency,
       note: inv.note.slice(0, 4000),
       term: inv.terms.slice(0, 4000),
-      payment_term: { due_date: inv.dueDate },
+      invoice_date: new Date().toISOString().slice(0, 10),
+      payment_term: { term_type: "DUE_ON_DATE_SPECIFIED", due_date: inv.dueDate },
     },
     primary_recipients: [{ billing_info: { email_address: inv.clientEmail, name: { full_name: inv.clientName } } }],
     items: inv.items.map((it) => ({ name: it.name.slice(0, 200), quantity: "1", unit_amount: money(it.amount, inv.currency) })),
     configuration: { allow_tip: false, partial_payment: { allow_partial_payment: true } },
-  });
+  }, { requestId: `invoice-${inv.number}` });
   const id = created.id || created.href?.split("/").pop() || created.links?.find((l) => l.rel === "self")?.href.split("/").pop();
   if (!id) throw new PayPalError("Invoice created but no id returned", 500, JSON.stringify(created));
-  const sent = await call<{ href?: string }>("POST", `/v2/invoicing/invoices/${id}/send`, { send_to_recipient: true });
-  return { invoiceId: id, status: "SENT", link: sent.href };
+  // 200 returns the payer-view link; 202 (scheduled send) has no body, so read it off the invoice.
+  const sent = await call<{ href?: string }>("POST", `/v2/invoicing/invoices/${id}/send`, { send_to_recipient: true, send_to_invoicer: false },
+    { requestId: `invoice-send-${id}` });
+  let link = sent.href;
+  if (!link) {
+    const full = await call<{ detail?: { metadata?: { recipient_view_url?: string } } }>("GET", `/v2/invoicing/invoices/${id}`).catch(() => null);
+    link = full?.detail?.metadata?.recipient_view_url;
+  }
+  return { invoiceId: id, status: "SENT", link };
 }
 
 export async function remindInvoice(invoiceId: string, subject: string, note: string): Promise<{ status: string }> {
   if (paypalMode() === "mock") return { status: "REMINDED" };
-  await call("POST", `/v2/invoicing/invoices/${invoiceId}/remind`, { subject: subject.slice(0, 100), note: note.slice(0, 4000), send_to_recipient: true });
+  await call("POST", `/v2/invoicing/invoices/${invoiceId}/remind`, { subject: subject.slice(0, 100), note: note.slice(0, 4000), send_to_recipient: true, send_to_invoicer: false });
   return { status: "REMINDED" };
 }
 
-export async function recordInvoicePayment(invoiceId: string, amount: number, currency: string): Promise<{ status: string }> {
+/**
+ * Record a payment made *outside* PayPal (`POST /v2/invoicing/invoices/{id}/payments`).
+ * PayPal records payments made through PayPal itself; don't call this for those (the webhook
+ * path skips it), or the invoice gets paid twice on paper.
+ */
+export async function recordInvoicePayment(invoiceId: string, amount: number, currency: string, ref: string): Promise<{ status: string }> {
   if (paypalMode() === "mock") return { status: "PAID" };
   await call("POST", `/v2/invoicing/invoices/${invoiceId}/payments`, {
-    method: "PAYPAL", payment_date: new Date().toISOString().slice(0, 10), amount: money(amount, currency),
-  });
+    method: "OTHER", payment_date: new Date().toISOString().slice(0, 10), amount: money(amount, currency), note: "Recorded by Shield",
+  }, { requestId: `invoice-payment-${invoiceId}-${ref}` });
   return { status: "PAID" };
 }
 
 export async function cancelInvoice(invoiceId: string): Promise<{ status: string }> {
   if (paypalMode() === "mock") return { status: "CANCELLED" };
-  await call("POST", `/v2/invoicing/invoices/${invoiceId}/cancel`, { send_to_recipient: true, send_to_invoicer: true });
+  await call("POST", `/v2/invoicing/invoices/${invoiceId}/cancel`, { send_to_recipient: true, send_to_invoicer: true }, { requestId: `invoice-cancel-${invoiceId}` });
   return { status: "CANCELLED" };
 }
 
@@ -186,4 +243,34 @@ export async function getOrder(orderId: string): Promise<Record<string, unknown>
 export async function listDisputes(): Promise<Record<string, unknown>> {
   if (paypalMode() === "mock") return { items: [], mock: true };
   return call("GET", "/v1/customer/disputes?page_size=10");
+}
+
+// ---------- Webhooks ----------
+
+/**
+ * `POST /v1/notifications/verify-webhook-signature`. The event goes in as the raw bytes PayPal
+ * sent, spliced into the JSON rather than re-serialized: PayPal checks the signature against the
+ * CRC32 of the exact body, and a parse/stringify round trip can change it.
+ */
+export async function verifyWebhookSignature(headers: Headers, rawBody: string, webhookId: string): Promise<boolean> {
+  const h = (k: string) => headers.get(k);
+  const fields = {
+    auth_algo: h("paypal-auth-algo"), cert_url: h("paypal-cert-url"), transmission_id: h("paypal-transmission-id"),
+    transmission_sig: h("paypal-transmission-sig"), transmission_time: h("paypal-transmission-time"), webhook_id: webhookId,
+  };
+  if (Object.values(fields).some((v) => !v)) return false;
+  const body = `${JSON.stringify(fields).slice(0, -1)},"webhook_event":${rawBody}}`;
+  const send = async () => fetch(`${BASE}/v1/notifications/verify-webhook-signature`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" },
+    body,
+  });
+  let res = await send();
+  if (res.status === 401) {
+    tokenCache = null;
+    res = await send();
+  }
+  if (!res.ok) return false;
+  const j = (await res.json()) as { verification_status?: string };
+  return j.verification_status === "SUCCESS";
 }
