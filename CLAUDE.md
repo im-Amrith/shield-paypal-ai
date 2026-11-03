@@ -15,7 +15,7 @@ Routes: `/` is the public landing page, `/signin` is the demo sign-in (five pers
 ## Run
 ```
 npm install
-npm test          # 96 vitest tests, all passing
+npm test          # 103 vitest tests, all passing
 # open http://localhost:3000 → "Open Shield" → pick a persona
 npm run eval      # labeled eval sets (rules mode); SHIELD_EVAL_LLM=1 to include LLM
 npm run dev

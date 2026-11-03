@@ -30,7 +30,7 @@ Open http://localhost:3000, press **Open Shield** and pick a demo person (you ca
 | --- | --- |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `NEXT_PUBLIC_PAYPAL_CLIENT_ID` | Real sandbox calls: Orders (authorize/capture/void/reauthorize), Refunds, Invoicing v2, Disputes, and PayPal Smart Buttons on Vault payments |
 | `PAYPAL_WEBHOOK_ID` | Verified webhooks at `/api/paypal/webhook` (`INVOICING.INVOICE.PAID`) |
-| `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for any OpenAI-compatible API) | LLM review of scams (incl. screenshots), triage, multilingual support replies, case summaries, appeal and reminder polishing |
+| `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for any OpenAI-compatible API such as Groq, `OPENAI_MODEL`, and `OPENAI_VISION_MODEL` for calls with a screenshot, default `qwen/qwen3.8-27b`) | LLM review of scams (incl. screenshots), triage, multilingual support replies, case summaries, appeal and reminder polishing |
 | `CHANNEL3_API_KEY` | Live product search for the shopping agent (otherwise a small built-in list, labeled "sample products") |
 | `RESEND_API_KEY` | Real emails (otherwise they appear in the Demo tab's outbox) |
 | `CRON_SECRET` | Protects `/api/jobs` for a scheduled job |
@@ -38,13 +38,23 @@ Open http://localhost:3000, press **Open Shield** and pick a demo person (you ca
 ## Tests and evals
 
 ```bash
-npm test                      # 92 unit/integration tests (vitest)
+npm test                      # 103 unit/integration tests (vitest)
 npm run eval                  # labeled eval sets, rules mode
 SHIELD_EVAL_LLM=1 npm run eval   # same sets with your LLM key
 BASE=http://localhost:3000 bash scripts/smoke.sh   # end-to-end demo story against a running server
 ```
 
 Eval sets: scam check (38 dev + 14 held-out messages), support triage (30), Guardian holds (18), shopping agent (10 requests against different caps; the cap-safety target is 100%: a cart the agent may pay never breaks a cap or the stated budget). The dev sets were written alongside the rules and score 100%; the **held-out** scam set scores about 50% recall with rules alone. That gap is why the LLM layer exists, and its target (80% recall) is enforced only when an LLM key is set.
+
+LLM results (Nov 3, Groq via the OpenAI-compatible path, `SHIELD_EVAL_LLM=1 npm run eval`):
+
+| Model (`OPENAI_MODEL`) | Held-out scam set (n=14) | Support triage (n=30) | Notes |
+|---|---|---|---|
+| rules only (no key) | recall 50.0% · accuracy 71.4% · precision 100% | 100% | baseline |
+| **`openai/gpt-oss-120b`** (kept) | **recall 100% · accuracy 92.9% · precision 88.9%** | 96.7% | all targets met, 0 fallbacks to rules |
+| `llama-3.3-70b-versatile` | not run | not run | Groq returns 404 `model_not_found` for this key, so every call would fall back to rules and repeat the baseline |
+
+Calls with a screenshot use `OPENAI_VISION_MODEL` (default `qwen/qwen3.8-27b`, checked live with a real image). On Groq the client sends at most 3 images (each at most 4 MB) and temperature 0.2. It never sends `logprobs`, `logit_bias`, `n` or `messages[].name`. On a 429 it retries once after `Retry-After` (up to 20 s); after that, or if the wait is longer, it falls back to the rules.
 
 ## What's real and what's simulated
 
