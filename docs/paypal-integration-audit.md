@@ -147,6 +147,19 @@ cleared and re-rendered while the popup was open (effect re-runs, StrictMode, Li
     balances, with a pay button for each.
   - Tests: `tests/collections.test.ts` (late-fee block) and `tests/webhook.test.ts`.
 
+## FX quotes (Pricing v2, added Nov 3)
+- `quoteExchangeRates()` in `lib/paypal.ts` calls `POST /v2/pricing/quote-exchange-rates` with
+  `{ quote_items: [{ base_currency, quote_currency, base_amount?, markup_percent? }] }` and reads
+  `exchange_rate_quotes[]` (`base_amount`/`quote_amount` money, `exchange_rate` string, `fx_id`,
+  `expiry_time`). The APIMatic plugin doesn't cover Pricing v2 (its SDK only has `ExchangeRate` on
+  captures), so the shape is from PayPal's OpenAPI spec (`/api/pricing/v2/schema.json`, v2.17).
+- `getRates()` in `lib/fx.ts` uses it first ("PayPal rate"), else mid-market or offline rates
+  ("Estimated"). Tests: `tests/fxrates.test.ts` (mocked PayPal and market responses).
+- Live, Nov 3: the token has the `pricing/quote-exchange-rates/read` scope, but the call returns
+  `403 NOT_AUTHORIZED` / `FEATURE_NOT_PROVISIONED` because FX-as-a-Service isn't turned on for the
+  sandbox business account. The fallback works. Re-check with `scripts/fx-live-check.ts` after
+  turning it on.
+
 ## Known gaps (not changed)
 - The toolkit's trackers-batch call drops `carrier_name_other`, so tracking sent as `OTHER` through
   the toolkit can be rejected. The failure is recorded on the deal and never blocks the release.

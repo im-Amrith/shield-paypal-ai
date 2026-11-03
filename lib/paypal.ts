@@ -284,6 +284,40 @@ export async function cancelInvoice(invoiceId: string): Promise<{ status: string
   return { status: "CANCELLED" };
 }
 
+// ---------- Pricing v2: FX-as-a-Service exchange-rate quotes (FX copilot) ----------
+
+/** One `rate_detail` from POST /v2/pricing/quote-exchange-rates (amounts and rates are strings). */
+export interface ExchangeRateQuote {
+  base_amount: { currency_code: string; value: string };
+  quote_amount: { currency_code: string; value: string };
+  /** Quote-currency units per one base-currency unit, e.g. "88.1234". Includes markup_percent if sent. */
+  exchange_rate: string;
+  fx_id?: string;
+  expiry_time?: string;
+  rate_refresh_time?: string;
+  update_time?: string;
+}
+
+/**
+ * PayPal's FX quote for each pair (needs the `pricing/quote-exchange-rates/read` scope AND
+ * FX-as-a-Service provisioned on the account; otherwise 403 FEATURE_NOT_PROVISIONED).
+ * Without `base_amount` PayPal quotes the rate only (base amount 1). No mock: callers fall back.
+ */
+export async function quoteExchangeRates(items: { base_currency: string; quote_currency: string; base_amount?: number; markup_percent?: number }[]): Promise<ExchangeRateQuote[]> {
+  if (paypalMode() === "mock") throw new Error("PayPal FX quotes need sandbox keys");
+  const body = {
+    quote_items: items.map((i) => ({
+      base_currency: i.base_currency,
+      quote_currency: i.quote_currency,
+      ...(i.base_amount !== undefined ? { base_amount: i.base_amount.toFixed(2) } : {}),
+      ...(i.markup_percent !== undefined ? { markup_percent: String(i.markup_percent) } : {}),
+    })),
+  };
+  // A read-only quote: no idempotency key needed, but call() sends a random one for POSTs, which is harmless.
+  const r = await call<{ exchange_rate_quotes?: ExchangeRateQuote[] }>("POST", "/v2/pricing/quote-exchange-rates", body);
+  return r.exchange_rate_quotes ?? [];
+}
+
 // ---------- Read-only lookups used by the support agent ----------
 
 export async function getOrder(orderId: string): Promise<Record<string, unknown>> {

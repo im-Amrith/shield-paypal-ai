@@ -15,7 +15,7 @@ Routes: `/` is the public landing page, `/signin` is the demo sign-in (five pers
 ## Run
 ```
 npm install
-npm test          # 124 vitest tests, all passing
+npm test          # 132 vitest tests, all passing
 # open http://localhost:3000 → "Open Shield" → pick a persona
 npm run eval      # labeled eval sets (rules mode); SHIELD_EVAL_LLM=1 to include LLM
 npm run dev
@@ -69,7 +69,7 @@ Stretch: traceable giving.
 ## Conventions / gotchas
 - Never store caller-owned arrays by reference in the DB (a test caught `items` being mutated); copy.
 - All money-moving agent actions go through `decideTool` / `decideSpend` in `lib/policy.ts`.
-- What's simulated (say so in UI + README): account limitation events (sandbox can't freeze), carrier delivery event, FX fees are estimates (no PayPal fee-quote API).
+- What's simulated (say so in UI + README): account limitation events (sandbox can't freeze), carrier delivery event, FX fees are estimates (no PayPal fee-quote API). FX *rates*: `getRates()` in `lib/fx.ts` tries PayPal's `quote-exchange-rates` first ("PayPal rate"), else mid-market/offline ("Estimated"). Our sandbox account returns 403 FEATURE_NOT_PROVISIONED until FX-as-a-Service is turned on; `scripts/fx-live-check.ts` checks. The APIMatic plugin doesn't cover Pricing v2: the shape comes from PayPal's spec (`developer.paypal.com/api/pricing/v2/schema.json`).
 - Don't use "PayPal" in the product name/logo.
 - PayPal audit (Nov 3): `docs/paypal-integration-audit.md`. Tracking needs a *capture* id, so Vault keeps it `pending` until release; carrier codes are PayPal's `ShipmentCarrier` values (`INDIA_POST`, `BLUEDART`, `DTDC_IN`…). Reauthorize only via `canReauthorize` (422, days 4–29, once). Money-moving calls use deterministic `PayPal-Request-Id`s; order creation doesn't. The webhook must pass the raw body to `verifyWebhookSignature` and never re-record a PayPal-paid invoice (`paidThroughPayPal`). `MOCKCAP_*` refunds are simulated when keys are set. Late fee = a separate PayPal invoice (`createLateFeeInvoice`; `feeInvoiceId` ↔ `feeFor`), chased as one debt with its original (`debtPair`); the fee is a % of the unpaid balance at the final step; never rewrite the original. Vault release records the buyer's transaction with the capture id (so Resolve can refund it). Live checks: `docs/live-sandbox-checklist.md`; `SANDBOX_BUYER_EMAIL` sets Dana's email.
 - Checkout buttons (`components/PayPalPay.tsx`): official `@paypal/react-paypal-js`; orders are created at click time (`action: "order"` on /api/vault and /api/shop), never at deal/cart creation. Don't clear or re-key the button container; one `PayPalProvider` per page when several buttons share an intent; the provider loads only after mount (StrictMode). `checkoutLock` pauses LiveRefresh while the popup is open. PayPal errors reach the UI as `PayPal error <ISSUE>: … (debug id …)`.

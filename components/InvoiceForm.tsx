@@ -5,7 +5,10 @@ import { CircleCheck } from "lucide-react";
 import { api, buttonClass, inputClass, labelClass, Spinner } from "./client";
 
 interface Option { billCurrency: string; invoiceAmount: number; clientPays: number; clientExtraPercent: number; paypalFee: number; conversionCost: number; netHome: number; notes: string[] }
-interface Compare { options: Option[]; recommended: string; reason: string; live: boolean }
+interface Compare {
+  options: Option[]; recommended: string; reason: string; live: boolean;
+  rateSource: "paypal" | "market" | "offline"; rateLabel: string; rateExpiresAt?: string; fallbackReason?: string;
+}
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
@@ -83,7 +86,15 @@ export function InvoiceForm({ defaultClientEmail = "dana@northwind.demo" }: { de
       </section>
 
       <section id="fx" className="scroll-mt-28 rounded-card border border-border bg-card p-5 sm:p-6">
-        <h3 className="text-[18px] font-extrabold">FX copilot</h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-[18px] font-extrabold">FX copilot</h3>
+          {cmp && (
+            <span title={cmp.fallbackReason ? `PayPal's rate wasn't available: ${cmp.fallbackReason}` : undefined}
+              className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${cmp.rateSource === "paypal" ? "bg-success-tint text-success" : "bg-raised text-muted"}`}>
+              {cmp.rateLabel}
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-[14px] text-muted">What you&apos;ll actually keep in rupees, for each currency you could bill in.</p>
         {cmp ? (
           <fieldset className="mt-4">
@@ -110,7 +121,12 @@ export function InvoiceForm({ defaultClientEmail = "dana@northwind.demo" }: { de
               })}
             </div>
             <p className="mt-3 text-[14px]">{cmp.reason}</p>
-            <p className="mt-1 text-[12px] text-muted">Estimated from PayPal&apos;s published fees and {cmp.live ? "live" : "offline"} mid-market rates. PayPal has no fee-quote API.</p>
+            <p className="mt-1 text-[12px] text-muted">
+              {cmp.rateSource === "paypal"
+                ? <>Conversion at PayPal&apos;s quoted rate{cmp.rateExpiresAt ? <>, valid until {new Date(cmp.rateExpiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</> : null}. </>
+                : <>Estimated: {cmp.rateSource === "market" ? "live" : "offline"} mid-market rates{cmp.fallbackReason ? " (PayPal's rate wasn't available)" : ""}. </>}
+              Fees are estimated from PayPal&apos;s published rates; PayPal has no fee-quote API.
+            </p>
           </fieldset>
         ) : <p className="mt-4 text-[14px] text-muted">Enter a price to compare currencies.</p>}
         <button className={`${buttonClass("primary", true)} mt-5`} disabled={busy || !chosen}>{busy ? <><Spinner /> Sending…</> : chosen ? `Send invoice for ${chosen.billCurrency} ${chosen.invoiceAmount.toLocaleString()}` : "Send invoice"}</button>

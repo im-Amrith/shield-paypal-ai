@@ -1,6 +1,8 @@
 // FX-aware billing copilot + fee estimator. PayPal has no public "quote my
 // fees" API, so these are ESTIMATES from PayPal's published fee pages,
-// configurable here, and shown in the UI as estimates.
+// configurable here, and shown in the UI as estimates. Conversion RATES come from PayPal's
+// FX quote API when the account has it (labelled "PayPal rate"), else public mid-market rates.
+import * as paypal from "./paypal";
 
 export const FEE_MODEL = {
   domesticRate: 0.0349, // goods & services, domestic
@@ -14,25 +16,102 @@ export const FALLBACK_RATES: Record<string, number> = {
   USD: 1, INR: 88.2, EUR: 0.86, GBP: 0.75, AUD: 1.52, CAD: 1.39, JPY: 151, SGD: 1.3,
 };
 
-let rateCache: { at: number; rates: Record<string, number>; live: boolean } | null = null;
+/**
+ * Where the conversion rates came from:
+ * - "paypal":  PayPal's own quote (POST /v2/pricing/quote-exchange-rates). Shown as "PayPal rate".
+ * - "market":  public mid-market rates (open.er-api.com). Shown as "Estimated".
+ * - "offline": the FALLBACK_RATES above. Shown as "Estimated".
+ */
+export type RateSource = "paypal" | "market" | "offline";
 
-export async function getRates(): Promise<{ rates: Record<string, number>; live: boolean }> {
-  if (rateCache && Date.now() - rateCache.at < 3600_000) return rateCache;
-  if (process.env.SHIELD_FORCE_MOCK !== "1") {
+export interface Rates {
+  /** Units of each currency per 1 USD. */
+  rates: Record<string, number>;
+  source: RateSource;
+  /** True for any rate fetched just now (PayPal or market); false for the bundled offline rates. */
+  live: boolean;
+  /** PayPal quotes only: when PayPal stops honouring the quoted rates. */
+  expiresAt?: string;
+  /** Why PayPal's rate wasn't used, e.g. "PayPal FEATURE_NOT_PROVISIONED (debug id …)". */
+  fallbackReason?: string;
+}
+
+export const rateLabel = (source: RateSource) => (source === "paypal" ? "PayPal rate" : "Estimated");
+
+/** Every currency the copilot can show, so one PayPal call covers them all. */
+const QUOTE_CURRENCIES = Object.keys(FALLBACK_RATES).filter((c) => c !== "USD");
+const HOUR_MS = 3600_000;
+/** After PayPal refuses, wait this long before asking again (a 403 won't fix itself in seconds). */
+const PAYPAL_RETRY_MS = 10 * 60_000;
+
+let rateCache: (Rates & { until: number }) | null = null;
+let paypalRetryAt = 0;
+
+/** Tests only. */
+export function resetRateCache() {
+  rateCache = null;
+  paypalRetryAt = 0;
+}
+
+/** PayPal's quote for USD → each currency, as a per-USD map. Throws unless every currency came back. */
+async function paypalRates(): Promise<{ rates: Record<string, number>; expiresAt?: string }> {
+  const quotes = await paypal.quoteExchangeRates(QUOTE_CURRENCIES.map((c) => ({ base_currency: "USD", quote_currency: c })));
+  const rates: Record<string, number> = { USD: 1 };
+  let expiresAt: string | undefined;
+  for (const q of quotes) {
+    const rate = Number(q.exchange_rate);
+    if (q.base_amount?.currency_code !== "USD" || !(rate > 0)) continue;
+    rates[q.quote_amount.currency_code] = rate;
+    if (q.expiry_time && (!expiresAt || q.expiry_time < expiresAt)) expiresAt = q.expiry_time;
+  }
+  const missing = QUOTE_CURRENCIES.filter((c) => !rates[c]);
+  // Don't mix sources in one comparison: all PayPal, or fall back for all.
+  if (missing.length) throw new Error(`PayPal didn't quote ${missing.join(", ")}`);
+  return { rates, expiresAt };
+}
+
+async function marketRates(): Promise<Record<string, number> | null> {
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { rates?: Record<string, number> };
+    return j.rates?.INR ? j.rates : null;
+  } catch {
+    return null;
+  }
+}
+
+function reasonOf(e: unknown): string {
+  if (e instanceof paypal.PayPalError) return `PayPal ${e.issue || e.status}${e.debugId ? ` (debug id ${e.debugId})` : ""}`;
+  return (e as Error)?.message || "PayPal rate unavailable";
+}
+
+/**
+ * Conversion rates for the FX copilot: PayPal's quote first, then public mid-market rates, then
+ * the bundled offline rates. PayPal quotes are cached until they expire (at most an hour); after
+ * a PayPal failure, the fallback is cached for 10 minutes before PayPal is asked again.
+ */
+export async function getRates(): Promise<Rates> {
+  const t = Date.now();
+  if (rateCache && t < rateCache.until) return rateCache;
+  let fallbackReason: string | undefined;
+  if (process.env.SHIELD_FORCE_MOCK !== "1" && paypal.paypalMode() !== "mock" && t >= paypalRetryAt) {
     try {
-      const res = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        const j = (await res.json()) as { rates?: Record<string, number> };
-        if (j.rates?.INR) {
-          rateCache = { at: Date.now(), rates: j.rates, live: true };
-          return rateCache;
-        }
-      }
-    } catch {
-      /* fall back */
+      const { rates, expiresAt } = await paypalRates();
+      const until = Math.min(t + HOUR_MS, expiresAt ? Date.parse(expiresAt) || Infinity : Infinity);
+      rateCache = { rates, source: "paypal", live: true, expiresAt, until: until > t ? until : t + 60_000 };
+      return rateCache;
+    } catch (e) {
+      fallbackReason = reasonOf(e);
+      paypalRetryAt = t + PAYPAL_RETRY_MS;
+      console.warn("[fx] PayPal exchange-rate quote failed, using estimated rates:", fallbackReason);
     }
   }
-  rateCache = { at: Date.now(), rates: FALLBACK_RATES, live: false };
+  const retry = paypalRetryAt > t ? paypalRetryAt : t + HOUR_MS;
+  const market = process.env.SHIELD_FORCE_MOCK === "1" ? null : await marketRates();
+  rateCache = market
+    ? { rates: market, source: "market", live: true, fallbackReason, until: Math.min(t + HOUR_MS, retry) }
+    : { rates: FALLBACK_RATES, source: "offline", live: false, fallbackReason, until: Math.min(t + HOUR_MS, retry) };
   return rateCache;
 }
 
