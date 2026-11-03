@@ -9,7 +9,12 @@ post() { curl -s -b "$J/$1" -c "$J/$1" -X POST "$BASE$2" -H 'content-type: appli
 # Status code, or "render-error" when the page came back 200 but rendered an error boundary.
 page() { local f="$J/body"; local c; c=$(curl -s -o "$f" -w '%{http_code}' -b "$J/$1" "$BASE$2"); if grep -qE "__next_error__|couldn.t load|Application error" "$f"; then echo render-error; else echo "$c"; fi; }
 field() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.ok){console.error('API error:',j.error);process.exit(1)};const v=(new Function('d','return '+process.argv[1]))(j.data);console.log(v)})" "$1"; }
-ok() { echo "  ✓ $1"; }
+# A failed `[ … ] && ok` prints nothing and set -e doesn't stop on it, so count passes and compare at the end.
+PASSED=0
+ok() { PASSED=$((PASSED + 1)); echo "  ✓ $1"; }
+# Page HTML contains TEXT. Not `curl | grep -q`: with pipefail, grep -q exits on the first match and
+# curl then fails writing the rest of a big page (exit 23), which makes a passing check fail.
+has() { local html; html=$(curl -s -b "$J/$1" "$BASE$2"); grep -qF -- "$3" <<<"$html"; }
 # Status and Location header of a request: "307 /signin?next=…" (Location made relative to BASE).
 hop() { curl -s -o /dev/null -D - "$@" | tr -d "\r" | awk -v b="$BASE" 'NR==1{c=$2} tolower($1)=="location:"{l=$2; sub(b,"",l)} END{print c, l}'; }
 
@@ -47,7 +52,7 @@ post meera /api/demo '{"action":"advance","hours":73}' | field 'd.jobs.join(",")
 [ "$(page buyer /vault/$id)" = 200 ] && ok "deal page renders"
 
 post meera /api/vault "{\"action\":\"ship\",\"id\":\"$id\",\"trackingNumber\":\"EZ1\",\"carrier\":\"India Post\"}" | grep -q "Can't ship" && ok "can't ship twice"
-curl -s -b "$J/meera" "$BASE/vault/$id" | grep -q "Tracking shared with PayPal" && ok "tracking shared with PayPal"
+has meera "/vault/$id" "Tracking shared with PayPal" && ok "tracking shared with PayPal"
 
 echo "Shopping agent"
 post meera /api/shop '{"action":"plan","need":"Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40"}' | field 'd.status' | grep -q paid && ok "under the threshold: bought automatically"
@@ -60,6 +65,18 @@ post meera /api/shop '{"action":"plan","need":"dish soap"}' | field 'd.reason' |
 post meera /api/shop '{"action":"revoke","revoked":false}' >/dev/null
 post meera /api/shop '{"action":"caps","perOrderCap":500,"monthlyCap":100,"autoApproveBelow":10}' | grep -q "monthly cap" && ok "caps panel rejects per-order above monthly"
 [ "$(page meera /shop)" = 200 ] && ok "shop page renders"
+
+echo "Saved PayPal (the agent pays with no popup)"
+post meera /api/shop '{"action":"vault-simulate"}' | field 'd.savedAt' >/dev/null && ok "PayPal saved for the agent (simulated approval)"
+has meera /shop "PayPal saved" && ok "shop shows PayPal saved"
+! has meera /shop "MOCKTOKEN" && ok "the payment token never reaches the browser"
+post meera /api/shop '{"action":"plan","need":"dish soap, budget USD 10"}' | field 'd.paidVia' | grep -q saved_paypal && ok "auto-approved cart paid by the agent with the saved PayPal"
+has meera /shop "Paid by Shield agent · saved PayPal" && ok "labelled Paid by Shield agent · saved PayPal"
+post meera /api/shop '{"action":"revoke","revoked":true}' >/dev/null
+post meera /api/shop '{"action":"plan","need":"dish soap"}' | field 'd.status' | grep -q blocked && ok "revoked agent can't use the saved PayPal"
+post meera /api/shop '{"action":"revoke","revoked":false}' >/dev/null
+post meera /api/shop '{"action":"vault-remove"}' | field 'd.removed' | grep -q true && ok "saved PayPal removed"
+has meera /shop "Save PayPal for the shopping agent" && ok "after removing, the save card is back"
 
 echo "Guardian"
 hid=$(post ravi /api/guardian '{"action":"pay","payee":"Income Tax Officer","amount":450,"note":"pay immediately or arrest"}' | field 'd.hold.id')
@@ -88,4 +105,6 @@ post ravi /api/support "{\"action\":\"decide\",\"caseId\":\"$cid\",\"actionId\":
 post agent /api/support "{\"action\":\"decide\",\"caseId\":\"$cid\",\"actionId\":\"$aid\",\"approve\":true}" | field 'd.status' | grep -q resolved && ok "specialist approved; refund done"
 [ "$(page agent "/console?case=$cid")" = 200 ] && ok "console renders"
 
-echo "All smoke checks passed."
+WANT=$(grep -c '&& ok "[A-Za-z]' "$0")
+if [ "$PASSED" -ne "$WANT" ]; then echo "✗ Only $PASSED of $WANT checks passed (a failed check prints no ✓ line above)"; exit 1; fi
+echo "All $PASSED smoke checks passed."

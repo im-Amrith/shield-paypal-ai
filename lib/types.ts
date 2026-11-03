@@ -10,6 +10,17 @@ export interface User {
   currency: string;
   guardianOf?: Persona; // e.g. meera is guardian of ravi
   guardedBy?: Persona;
+  /** PayPal saved for the shopping agent (Vault v3). Server-side only: never sent to the browser. */
+  savedPayPal?: SavedPayPal;
+  /** The setup token the user is approving right now; only this one may be exchanged. */
+  pendingVaultSetupToken?: string;
+}
+
+export interface SavedPayPal {
+  paymentTokenId: string;
+  customerId?: string;
+  email?: string;
+  savedAt: string;
 }
 
 export interface Notification {
@@ -203,6 +214,13 @@ export interface ShopCart {
   approvedAt?: string; // one-tap approval for carts above the auto-approve threshold
   reorderId?: string; // set when this cart came from a saved reorder
   source: "channel3" | "sample";
+  /** How it was paid: by the agent with the saved PayPal, in the PayPal popup, or simulated (mock). */
+  paidVia?: "saved_paypal" | "paypal_checkout" | "simulated";
+  /** Set when an agent charge's outcome is unknown (network error): retry with the same request id, never the popup. */
+  agentChargePending?: boolean;
+  /** Why the agent couldn't pay with the saved PayPal, so the cart waits for the popup. */
+  fallbackReason?: string;
+  history?: { at: string; event: string; detail: string }[];
 }
 
 export interface Reorder {

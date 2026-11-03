@@ -49,13 +49,14 @@ export function PayPalButtons({ currency, intent, path, orderBody, body, mockLab
  * twice, and the second load destroys the first one's buttons ("zoid destroyed all components").
  * Without a client ID (mock mode) it renders its children only.
  */
-export function PayPalProvider({ currency, intent, children }: { currency: string; intent: Intent; children: ReactNode }) {
+export function PayPalProvider({ currency, intent, children }: { currency: string; intent: Intent | "vault"; children: ReactNode }) {
   const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
   // Stable options: the provider reloads the SDK when they change. One namespace per intent so an
-  // AUTHORIZE script and a CAPTURE script never overwrite each other's window global.
-  const options = useMemo<ReactPayPalScriptOptions | null>(() => clientId ? ({
-    clientId, currency, intent, components: "buttons", dataNamespace: `paypal_${intent}`,
-  }) : null, [clientId, currency, intent]);
+  // AUTHORIZE script, a CAPTURE script and the save-without-purchase script ("vault": no intent,
+  // the setup token decides) never overwrite each other's window global.
+  const options = useMemo<ReactPayPalScriptOptions | null>(() => !clientId ? null : intent === "vault"
+    ? { clientId, components: "buttons", dataNamespace: "paypal_vault" }
+    : { clientId, currency, intent, components: "buttons", dataNamespace: `paypal_${intent}` }, [clientId, currency, intent]);
   // Load only after mount. React StrictMode (dev) runs mount effects twice; if the provider loaded
   // on mount, the second run would inject the SDK again while the first copy is still loading, and
   // that re-initialisation destroys the rendered buttons. Updates aren't double-run, so this loads once.
@@ -153,4 +154,77 @@ export function PayPalPay({ dealId, currency }: { dealId: string; currency: stri
   return <PayPalButtons currency={currency} intent="authorize" path="/api/vault"
     orderBody={{ action: "order", id: dealId }} body={{ action: "authorize", id: dealId }}
     mockLabel="Approve payment with PayPal" mockNote="Mock mode: the approval is simulated. Add PayPal sandbox keys to see the real PayPal buttons here." />;
+}
+
+/**
+ * "Save PayPal for the shopping agent": JS SDK save-without-purchase. createVaultSetupToken asks our
+ * API for a setup token; after the buyer approves in the popup, onApprove sends the approved
+ * `vaultSetupToken` back and our server exchanges it for a payment token (kept server-side).
+ * The checkout lock is held while the popup is open, like checkout.
+ */
+export function SavePayPalButtons() {
+  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+  if (!clientId) {
+    return (
+      <div>
+        <ActionButton full path="/api/shop" body={{ action: "vault-simulate" }}>Save PayPal (simulated)</ActionButton>
+        <p className="mt-2 text-[13px] text-muted">Mock mode: saving is simulated. With PayPal sandbox keys this opens PayPal to approve.</p>
+      </div>
+    );
+  }
+  return <PayPalProvider currency="USD" intent="vault"><SaveFlow /></PayPalProvider>;
+}
+
+function SaveFlow() {
+  const router = useRouter();
+  const [{ isResolved, isRejected }] = usePayPalScriptReducer();
+  const [msg, setMsg] = useState<Msg>(null);
+  const [busy, setBusy] = useState(false);
+  const lastApiError = useRef<unknown>(null);
+  useEffect(() => () => setCheckoutOpen(false), []);
+  const done = (m: Msg, refresh = false) => {
+    setCheckoutOpen(false);
+    setBusy(false);
+    setMsg(m);
+    if (refresh) router.refresh();
+  };
+  if (isRejected) return <p role="alert" className="text-[14px] text-danger">Couldn&apos;t load PayPal. Check your connection and reload the page.</p>;
+  return (
+    <div>
+      {!isResolved && <p className="flex items-center gap-2 text-[14px] text-muted"><Spinner /> Loading PayPal…</p>}
+      <SdkButtons
+        className="max-w-[480px] [color-scheme:light]"
+        style={{ layout: "vertical", shape: "rect", label: "paypal" }}
+        fundingSource="paypal"
+        disabled={busy}
+        onClick={() => { lastApiError.current = null; setMsg(null); setCheckoutOpen(true); }}
+        createVaultSetupToken={async () => {
+          try {
+            return (await api<{ setupTokenId: string }>("/api/shop", { action: "vault-setup" })).setupTokenId;
+          } catch (e) {
+            lastApiError.current = e;
+            throw e;
+          }
+        }}
+        onApprove={async (data) => {
+          setBusy(true);
+          setMsg({ tone: "info", text: "Saving with PayPal…" });
+          try {
+            await api("/api/shop", { action: "vault-save", setupTokenId: data.vaultSetupToken });
+            done(null, true);
+          } catch (e) {
+            console.error("[paypal] save failed", e instanceof ApiError ? { code: e.code, debugId: e.debugId, message: e.message } : e);
+            done({ tone: "error", text: explain(e, "PayPal wasn't saved") }, true);
+          }
+        }}
+        onCancel={() => done({ tone: "info", text: "Not saved. Nothing changed." })}
+        onError={(err) => {
+          const cause = lastApiError.current ?? err;
+          console.error("[paypal] save error", cause instanceof ApiError ? { code: cause.code, debugId: cause.debugId, message: cause.message } : cause);
+          done({ tone: "error", text: explain(cause, "PayPal couldn't start saving") });
+        }}
+      />
+      {msg && <p role={msg.tone === "error" ? "alert" : "status"} className={`mt-2 text-[14px] ${msg.tone === "error" ? "text-danger" : "text-muted"}`}>{msg.text}</p>}
+    </div>
+  );
 }

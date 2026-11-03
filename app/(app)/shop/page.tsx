@@ -1,13 +1,14 @@
-import { ShoppingCart, ExternalLink, Repeat } from "lucide-react";
+import { ShoppingCart, ExternalLink, Repeat, Wallet, Bot } from "lucide-react";
 import { getUser } from "@/lib/session";
 import { db } from "@/lib/store";
 import { now } from "@/lib/clock";
 import { paypalMode } from "@/lib/paypal";
-import { policyFor, spentThisMonth, productSource, isDue, nextDue } from "@/lib/shop";
+import { policyFor, spentThisMonth, productSource, isDue, nextDue, AGENT_PAID_LABEL } from "@/lib/shop";
+import { savedPayPalView, type SavedPayPalView } from "@/lib/savedPaypal";
 import type { ShopCart } from "@/lib/types";
 import { Card, Pill, PageHeader, Section, Empty, When, Mark, Note, HeroBand, HeroGauge, Hi, KeyValues, fmtMoney, type Tone } from "@/components/ui";
 import { ActionButton } from "@/components/client";
-import { PayPalButtons, PayPalProvider } from "@/components/PayPalPay";
+import { PayPalButtons, PayPalProvider, SavePayPalButtons } from "@/components/PayPalPay";
 import { NeedForm, RevokeSwitch, CapsForm } from "@/components/ShopForms";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,34 @@ const DECISION: Record<ShopCart["decision"], string> = {
   needs_human: "Needs review",
   blocked: "Blocked",
 };
+
+/** Save PayPal once so the agent can pay within the caps with no popup. Shows only the email, never the token. */
+function SavedPayPalCard({ saved, revoked, autoApproveBelow }: { saved: SavedPayPalView | null; revoked: boolean; autoApproveBelow: number }) {
+  if (saved) {
+    return (
+      <Card as="section" className="mb-6 p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 font-extrabold"><Wallet size={18} aria-hidden className="text-accent" /> PayPal saved{saved.email ? <span className="font-semibold text-muted"> · <span className="break-all">{saved.email}</span></span> : null}</h2>
+            <p className="mt-1 text-[14px] text-muted">
+              {revoked ? "The agent is revoked, so it can't use it." : <>The agent pays on its own up to {fmtMoney(autoApproveBelow, "USD", 0)} a cart, and after your one tap above that, always within your caps. Saved <When iso={saved.savedAt} date />.</>}
+            </p>
+          </div>
+          <ActionButton variant="secondary" path="/api/shop" body={{ action: "vault-remove" }} confirm="Remove the saved PayPal? The agent will ask you to pay in the PayPal window again.">Remove</ActionButton>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card as="section" className="mb-6 border-l-4 border-l-accent p-5 sm:p-6">
+      <h2 className="flex items-center gap-2 text-[18px] font-extrabold"><Wallet size={19} aria-hidden className="text-accent" /> Save PayPal for the shopping agent</h2>
+      <p className="mb-4 mt-1 text-[14px] text-muted">
+        Approve once in PayPal. After that the agent pays with it on its own, with no popup, but only within your caps: up to {fmtMoney(autoApproveBelow, "USD", 0)} a cart by itself, more only after your one tap, never over your per-order or monthly cap. Revoking the agent stops it at once; you can remove PayPal any time.
+      </p>
+      <SavePayPalButtons />
+    </Card>
+  );
+}
 
 function CartCard({ cart, revoked }: { cart: ShopCart; revoked: boolean }) {
   const st = STATUS[cart.status];
@@ -79,15 +108,37 @@ function CartCard({ cart, revoked }: { cart: ShopCart; revoked: boolean }) {
             <ActionButton full variant="secondary" path="/api/shop" body={{ action: "decline", id: cart.id }}>Decline</ActionButton>
           </div>
         )}
-        {cart.status === "awaiting_payment" && !revoked && (
+        {cart.status === "awaiting_payment" && cart.agentChargePending && !revoked && (
           <div className="mt-4">
+            <p className="mb-2 text-[14px] text-muted">PayPal didn&apos;t confirm the agent&apos;s charge. Checking again uses the same request, so it can&apos;t be charged twice.</p>
+            <ActionButton full path="/api/shop" body={{ action: "charge", id: cart.id }}>Check with PayPal again</ActionButton>
+          </div>
+        )}
+        {cart.status === "awaiting_payment" && !cart.agentChargePending && !revoked && (
+          <div className="mt-4">
+            {cart.fallbackReason && <p className="mb-3 text-[14px] text-muted"><Bot size={15} aria-hidden className="mr-1 inline text-accent" />{cart.fallbackReason}</p>}
             <PayPalButtons currency={cart.currency} intent="capture" path="/api/shop" orderBody={{ action: "order", id: cart.id }} body={{ action: "pay", id: cart.id }}
               mockLabel="Pay with PayPal" mockNote="Mock mode: the PayPal approval is simulated." />
             <p className="mt-2 text-[13px] text-muted">Your caps are checked again right before PayPal captures the payment.</p>
           </div>
         )}
         {live && revoked && <p className="mt-3 text-[14px] font-bold text-danger">Agent revoked: this cart can&apos;t be paid.</p>}
-        {cart.status === "paid" && <p className="mt-2 text-[14px] text-muted">Paid <When iso={cart.paidAt!} /> · PayPal capture <span className="tabular break-all">{cart.captureId}</span></p>}
+        {cart.status === "paid" && (
+          <p className="mt-2 text-[14px] text-muted">
+            {cart.paidVia === "saved_paypal" ? <span className="font-bold text-success">{AGENT_PAID_LABEL}</span> : cart.paidVia === "paypal_checkout" ? "Paid in the PayPal window" : "Paid"}
+            {" "}<When iso={cart.paidAt!} /> · PayPal capture <span className="tabular break-all">{cart.captureId}</span>
+          </p>
+        )}
+        {cart.history && cart.history.length > 0 && (
+          <details className="mt-3 text-[14px]">
+            <summary className="cursor-pointer font-semibold text-muted hover:text-fg">What the agent did</summary>
+            <ol className="mt-2 space-y-1.5 border-l border-border pl-4">
+              {cart.history.map((h, i) => (
+                <li key={i}><span className="font-semibold">{h.event}</span> <span className="text-muted">· <When iso={h.at} /></span><br /><span className="text-muted">{h.detail}</span></li>
+              ))}
+            </ol>
+          </details>
+        )}
       </div>
     </Card>
   );
@@ -118,6 +169,7 @@ export default async function ShopPage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         <div className="min-w-0">
           <div className="mb-6 lg:hidden"><RevokeSwitch revoked={policy.revoked} /></div>
+          <SavedPayPalCard saved={savedPayPalView(me.id)} revoked={policy.revoked} autoApproveBelow={policy.autoApproveBelow} />
           <Section title="New request">
             <Card className="p-5 sm:p-6">
               <NeedForm disabled={policy.revoked} />

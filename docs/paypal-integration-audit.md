@@ -147,6 +147,26 @@ cleared and re-rendered while the popup was open (effect re-runs, StrictMode, Li
     balances, with a pay button for each.
   - Tests: `tests/collections.test.ts` (late-fee block) and `tests/webhook.test.ts`.
 
+## Saved PayPal for the shopping agent (Vault v3, added Nov 3)
+Shapes from the APIMatic PayPal context (`VaultController`: CreateSetupToken, CreatePaymentToken,
+DeletePaymentToken; models SetupTokenRequest, VaultPaypalWalletRequest, VaultTokenRequest
+`{type: SETUP_TOKEN}`, PaymentTokenResponse, `PaypalWallet.vault_id`, `OrderStatus`) and PayPal's
+"save PayPal without purchase" JS SDK guide (`createVaultSetupToken`, `onApprove({ vaultSetupToken })`).
+- `POST /v3/vault/setup-tokens`: `payment_source.paypal` with `description`, `usage_type: MERCHANT`,
+  `customer_type: CONSUMER`, `usage_pattern: UNSCHEDULED_POSTPAID`, `permit_multiple_payment_tokens:
+  false`, and `experience_context` (`brand_name`, `shipping_preference: NO_SHIPPING`, `return_url`,
+  `cancel_url`, which PayPal requires even for the popup). Live: 201, `status: PAYER_ACTION_REQUIRED`,
+  `customer.id` and an `approve` link; the popup opened on it (checked in the browser).
+- `POST /v3/vault/payment-tokens`: `{ payment_source: { token: { id, type: "SETUP_TOKEN" } } }`, with
+  `PayPal-Request-Id: payment-token-<setup id>`. Only the setup token issued to that user is accepted.
+- `DELETE /v3/vault/payment-tokens/{id}` on Remove (204; a 404 also forgets the token).
+- Charge, buyer not present: `POST /v2/checkout/orders` with intent CAPTURE and
+  `payment_source.paypal.vault_id`, `PayPal-Request-Id: shield-agent-<cartId>`. COMPLETED → the capture
+  id from `purchase_units[0].payments.captures[0]`; a DECLINED/FAILED capture throws;
+  `PAYER_ACTION_REQUIRED` or a 4xx falls back to the popup.
+- Not yet run live: the exchange after a real approval and the vault_id charge. Both need the buyer to
+  approve once in the browser (checklist step 5, then `scripts/vault-live-check.ts`).
+
 ## FX quotes (Pricing v2, added Nov 3)
 - `quoteExchangeRates()` in `lib/paypal.ts` calls `POST /v2/pricing/quote-exchange-rates` with
   `{ quote_items: [{ base_currency, quote_currency, base_amount?, markup_percent? }] }` and reads

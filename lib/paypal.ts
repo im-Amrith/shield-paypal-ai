@@ -284,6 +284,68 @@ export async function cancelInvoice(invoiceId: string): Promise<{ status: string
   return { status: "CANCELLED" };
 }
 
+// ---------- Vault v3: save PayPal once, let the shopping agent charge it later ----------
+// Shapes from the APIMatic PayPal context (SetupTokenRequest, VaultPaypalWalletRequest,
+// PaymentTokenRequest with VaultTokenRequest{type: SETUP_TOKEN}, PaymentTokenResponse,
+// PaypalWallet.vault_id) and PayPal's "save PayPal without purchase" guide.
+
+/** Step 1 (buyer present): a setup token the buyer approves in the PayPal popup. */
+export async function createVaultSetupToken(opts: { description: string; returnUrl: string; cancelUrl: string; customerId?: string }): Promise<{ id: string; customerId?: string; status: string }> {
+  if (paypalMode() === "mock") return { id: mockId("MOCKSETUP"), customerId: opts.customerId ?? mockId("MOCKCUST"), status: "PAYER_ACTION_REQUIRED" };
+  const r = await call<{ id: string; status: string; customer?: { id?: string } }>("POST", "/v3/vault/setup-tokens", {
+    ...(opts.customerId ? { customer: { id: opts.customerId } } : {}),
+    payment_source: {
+      paypal: {
+        description: opts.description.slice(0, 128),
+        usage_type: "MERCHANT",
+        customer_type: "CONSUMER",
+        usage_pattern: "UNSCHEDULED_POSTPAID", // the agent charges when a cart is due, not on a schedule
+        permit_multiple_payment_tokens: false,
+        // PayPal requires these even though the JS SDK popup never navigates to them.
+        experience_context: { brand_name: "Shield", shipping_preference: "NO_SHIPPING", return_url: opts.returnUrl, cancel_url: opts.cancelUrl },
+      },
+    },
+  });
+  return { id: r.id, customerId: r.customer?.id, status: r.status };
+}
+
+/** Step 2: exchange the approved setup token for a long-lived payment token. Keep its id server-side only. */
+export async function createPaymentTokenFromSetup(setupTokenId: string): Promise<{ id: string; customerId?: string; email?: string }> {
+  if (paypalMode() === "mock") return { id: mockId("MOCKTOKEN"), customerId: mockId("MOCKCUST") };
+  const r = await call<{ id: string; customer?: { id?: string }; payment_source?: { paypal?: { email_address?: string } } }>(
+    "POST", "/v3/vault/payment-tokens",
+    { payment_source: { token: { id: setupTokenId, type: "SETUP_TOKEN" } } },
+    { requestId: `payment-token-${setupTokenId}` }, // a retried exchange returns the same token
+  );
+  return { id: r.id, customerId: r.customer?.id, email: r.payment_source?.paypal?.email_address };
+}
+
+/** Remove a saved payment token (204 No Content). */
+export async function deletePaymentToken(paymentTokenId: string): Promise<void> {
+  if (paypalMode() === "mock") return;
+  await call<unknown>("DELETE", `/v3/vault/payment-tokens/${encodeURIComponent(paymentTokenId)}`);
+}
+
+/**
+ * Buyer not present: create an Orders v2 order paid by the saved PayPal token. PayPal completes and
+ * captures it in the same call (status COMPLETED) unless it needs the payer (PAYER_ACTION_REQUIRED),
+ * in which case the caller falls back to the popup. `requestId` must be fixed per purchase so a
+ * retry returns the first result instead of charging twice.
+ */
+export async function chargeSavedPayPal(opts: { vaultId: string; amount: number; currency: string; description: string; referenceId: string; requestId: string }): Promise<{ orderId: string; status: string; captureId?: string }> {
+  if (paypalMode() === "mock") return { orderId: mockId("MOCKORDER"), status: "COMPLETED", captureId: mockId("MOCKCAP") };
+  const o = await call<{ id: string; status: string; purchase_units?: { payments?: { captures?: { id: string; status: string }[] } }[] }>("POST", "/v2/checkout/orders", {
+    intent: "CAPTURE",
+    purchase_units: [{ reference_id: opts.referenceId, custom_id: opts.referenceId.slice(0, 127), description: opts.description.slice(0, 127), amount: money(opts.amount, opts.currency) }],
+    payment_source: { paypal: { vault_id: opts.vaultId } },
+  }, { requestId: opts.requestId });
+  if (o.status !== "COMPLETED") return { orderId: o.id, status: o.status };
+  const cap = o.purchase_units?.[0]?.payments?.captures?.[0];
+  if (!cap) throw new PayPalError(`PayPal order ${o.id} completed without a capture`, 502, JSON.stringify(o));
+  if (CAPTURE_FAILED.has(cap.status)) throw new PayPalError(`PayPal capture ${cap.id} ${cap.status}`, 422, JSON.stringify({ name: cap.status, details: [{ issue: `CAPTURE_${cap.status}` }] }));
+  return { orderId: o.id, status: o.status, captureId: cap.id };
+}
+
 // ---------- Pricing v2: FX-as-a-Service exchange-rate quotes (FX copilot) ----------
 
 /** One `rate_detail` from POST /v2/pricing/quote-exchange-rates (amounts and rates are strings). */

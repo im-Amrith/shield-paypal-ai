@@ -1,7 +1,7 @@
 # Live sandbox checklist
 
-Four manual checks against the real PayPal sandbox. These cover what the automated tests can't:
-the PayPal popup, real capture IDs, and the sandbox inbox. Plan on about 30 minutes.
+Five manual checks against the real PayPal sandbox. These cover what the automated tests can't:
+the PayPal popup, real capture IDs, the sandbox inbox, and a saved PayPal charged with no buyer present. Plan on about 40 minutes.
 
 ## Setup (once)
 
@@ -102,6 +102,29 @@ A failed PayPal call shows its reason in the page or the console log, for exampl
 - The popup closes without paying: you should see "Payment cancelled — nothing was charged."
 - A red "PayPal error <ISSUE>: …" message: note the issue and the debug id. `UNSUPPORTED_PAYEE_CURRENCY` or `PAYEE_ACCOUNT_RESTRICTED` means the app's sandbox business account can't take USD: use a US sandbox business account.
 - The cart is captured without the popup, which means mock mode is still on.
+
+## 5. Saved PayPal: the agent pays with no popup
+
+| Step | As | Click |
+|---|---|---|
+| 1 | Meera | **Shop** → **Save PayPal for the shopping agent** → PayPal button → log in as the sandbox personal account → agree |
+| 2 | Meera | build "Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40" (under the USD 40 auto-approve limit) |
+| 3 | — | `npx tsx --env-file=.env.local scripts/vault-live-check.ts` (USD 5 against the saved token) |
+| 4 | Meera | turn **Agent can shop** off, build the same cart again; turn it back on |
+| 5 | — | **Demo** → **+1 week** five times (the reorder is due after 30 days) |
+| 6 | Meera | **Remove** next to "PayPal saved" |
+
+**Pass:**
+- After step 1, the card reads **"PayPal saved · <sandbox personal email>"**.
+- After step 2, the cart is **Paid** with no popup and reads **"Paid by Shield agent · saved PayPal"** with a real capture ID. "What the agent did" shows the policy check ("Auto-approved: USD … is within your USD 40 auto-approve limit …").
+- Step 3 prints `Order …: COMPLETED` and a capture ID; the sandbox business account shows a USD 5.00 payment.
+- After step 4, the cart is **Blocked by your caps** ("Agent permissions are revoked") and nothing is charged.
+- After step 5, an alert says **"Your monthly reorder was paid: USD …, within your USD 40 auto-approve limit"**.
+- After step 6, the save card is back, and the next cart waits for the PayPal window.
+
+**Fail:**
+- A cart reads "PayPal needs the payer's approval for this one (PAYER_ACTION_REQUIRED)": PayPal didn't accept the saved token for a buyer-not-present charge. Note it; the popup still works.
+- A red `PayPal error <ISSUE>` under the save button: note the issue and the debug ID.
 
 ## After
 
