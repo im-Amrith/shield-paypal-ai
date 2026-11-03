@@ -105,6 +105,26 @@ export async function refundCapture(captureId: string, amount: number, currency:
   return { refundId: r.id, status: r.status };
 }
 
+/** Capture a CAPTURE-intent order after the payer approved it (shopping agent checkout). */
+export async function captureOrder(orderId: string): Promise<{ captureId: string; status: string }> {
+  if (paypalMode() === "mock") return { captureId: mockId("MOCKCAP"), status: "COMPLETED" };
+  const o = await call<{ status: string; purchase_units: { payments: { captures: { id: string; status: string }[] } }[] }>(
+    "POST", `/v2/checkout/orders/${orderId}/capture`, {},
+  );
+  const c = o.purchase_units[0].payments.captures[0];
+  return { captureId: c.id, status: c.status };
+}
+
+// ---------- Add Tracking API (fallback when the Agent Toolkit isn't available) ----------
+
+export async function addTracking(t: { transactionId: string; trackingNumber: string; carrier: string; orderId?: string }): Promise<{ status: string }> {
+  if (paypalMode() === "mock") return { status: "SHIPPED" };
+  await call("POST", "/v1/shipping/trackers-batch", {
+    trackers: [{ transaction_id: t.transactionId, tracking_number: t.trackingNumber, status: "SHIPPED", carrier: t.carrier }],
+  });
+  return { status: "SHIPPED" };
+}
+
 // ---------- Invoicing v2 (Collections agent) ----------
 
 export async function createAndSendInvoice(inv: {

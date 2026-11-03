@@ -26,6 +26,7 @@ export const config = {
     "/console",
     "/demo",
     "/subscriptions",
+    "/shop",
     "/support",
     "/get-paid/:path*",
     "/guardian/:path*",

@@ -6,9 +6,9 @@ People on Reddit, Trustpilot and the PayPal Community forum keep raising the sam
 
 | Pillar | Features |
 | --- | --- |
-| **Protect** | Scam check (paste a chat or screenshot) · **Vault** escrow: PayPal authorize now, capture on delivery or auto-release · **Guardian mode**: a senior's unusual payments wait for a trusted relative · Subscription finder |
+| **Protect** | Scam check (paste a chat or screenshot) · **Vault** escrow: PayPal authorize now, capture on delivery or auto-release · **Guardian mode**: a senior's unusual payments wait for a trusted relative · **Shopping agent**: write a need, it compares products (Channel3) and buys within your caps (auto below a threshold, one-tap approve above it, blocked over the caps, one switch to revoke), with monthly reorders · Subscription finder |
 | **Get Paid** | **Collections agent**: sends the PayPal invoice, then chases on a bounded, polite ladder; late fee only if agreed up front · **FX copilot**: shows what you keep in each billing currency · **Freeze early warning + Hold Explainer**: plain-language reason, the exact payments involved, documents to send, a ready appeal |
-| **Resolve** | Tier 1 AI troubleshoots from cited help articles → Tier 2 agent can act through PayPal tools → every tool call passes the **policy engine** (read-only runs, small actions ask the customer, refunds above a limit and account changes need a human) → human console to approve, deny or take over. Voice in English, Hindi and Malayalam. |
+| **Resolve** | Tier 1 AI troubleshoots from cited help articles → Tier 2 agent acts through the **PayPal Agent Toolkit** (refunds, disputes, orders, invoices) → every tool call passes the **policy engine** (read-only runs, small actions ask the customer, refunds above a limit and account changes need a human) → human console to approve, deny or take over. Voice in English, Hindi and Malayalam. |
 
 ## Run it (2 minutes)
 
@@ -31,23 +31,26 @@ Open http://localhost:3000, press **Open Shield** and pick a demo person (you ca
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `NEXT_PUBLIC_PAYPAL_CLIENT_ID` | Real sandbox calls: Orders (authorize/capture/void/reauthorize), Refunds, Invoicing v2, Disputes, and PayPal Smart Buttons on Vault payments |
 | `PAYPAL_WEBHOOK_ID` | Verified webhooks at `/api/paypal/webhook` (`INVOICING.INVOICE.PAID`) |
 | `ANTHROPIC_API_KEY` *or* `OPENAI_API_KEY` (+ `OPENAI_BASE_URL` for any OpenAI-compatible API) | LLM review of scams (incl. screenshots), triage, multilingual support replies, case summaries, appeal and reminder polishing |
+| `CHANNEL3_API_KEY` | Live product search for the shopping agent (otherwise a small built-in list, labeled "sample products") |
 | `RESEND_API_KEY` | Real emails (otherwise they appear in the Demo tab's outbox) |
 | `CRON_SECRET` | Protects `/api/jobs` for a scheduled job |
 
 ## Tests and evals
 
 ```bash
-npm test                      # 62 unit/integration tests (vitest)
+npm test                      # 92 unit/integration tests (vitest)
 npm run eval                  # labeled eval sets, rules mode
 SHIELD_EVAL_LLM=1 npm run eval   # same sets with your LLM key
 BASE=http://localhost:3000 bash scripts/smoke.sh   # end-to-end demo story against a running server
 ```
 
-Eval sets: scam check (38 dev + 14 held-out messages), support triage (30), Guardian holds (18). The dev sets were written alongside the rules and score 100%; the **held-out** scam set scores about 50% recall with rules alone. That gap is why the LLM layer exists, and its target (80% recall) is enforced only when an LLM key is set.
+Eval sets: scam check (38 dev + 14 held-out messages), support triage (30), Guardian holds (18), shopping agent (10 requests against different caps; the cap-safety target is 100%: a cart the agent may pay never breaks a cap or the stated budget). The dev sets were written alongside the rules and score 100%; the **held-out** scam set scores about 50% recall with rules alone. That gap is why the LLM layer exists, and its target (80% recall) is enforced only when an LLM key is set.
 
 ## What's real and what's simulated
 
-- **Real (sandbox):** PayPal orders with `intent: AUTHORIZE`, capture, void, reauthorization, refunds, invoices, reminders, payment recording, webhooks.
+- **Real (sandbox):** PayPal orders with `intent: AUTHORIZE`, capture, void, reauthorization, refunds, invoices, reminders, payment recording, webhooks, shipment tracking, and shopping-agent checkout (`intent: CAPTURE`).
+- **Through the PayPal Agent Toolkit** (`lib/toolkit.ts`): the Tier 2 agent's refunds (`create_refund`), dispute and order lookups (`list_disputes`, `get_order`), invoice cancellation (`cancel_sent_invoice`), and Vault tracking (`create_shipment_tracking`). The policy engine decides first; the toolkit runs only after an automatic, customer or specialist approval, and the console shows which toolkit tool ran. Authorize / capture / void / reauthorize stay on our REST client (`lib/paypal.ts`), which is also the fallback if the toolkit can't load. A PayPal error from the toolkit is never retried through REST, so money can't move twice.
+- **Shopping agent checkout:** in the sandbox the payer still approves each order in the PayPal popup; charging a saved payment method with no one present would need PayPal's payment-method vaulting, which this demo doesn't set up. The caps are checked when the cart is built and again right before the capture.
 - **Simulated, and labeled in the UI:** account limitation events (the sandbox can't freeze an account, so the Demo fires the same event), carrier "delivered" scans, and fees (PayPal has no public fee-quote API; estimates use published rates).
 - **Deliberately out of scope:** cancelling subscriptions on merchants' own websites. It needs the user's logins there, runs into 2FA and CAPTCHAs, and often breaks merchant terms. Shield drafts the cancellation email instead.
 
@@ -64,7 +67,21 @@ Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · Vitest ·
 
 ## Deploy (Render)
 
-Create a Web Service: build `npm install && npm run build`, start `npm start`. Add the env vars above. Add a Cron Job hitting `GET /api/jobs?key=$CRON_SECRET` every 15 minutes. Note: the JSON store lives on the instance's disk; attach a Render disk or reset the demo from the Demo tab.
+`render.yaml` is a Render Blueprint: a web service, a 1 GB persistent disk for the JSON store, and a cron job for background work.
+
+1. Push the repo to GitHub. In Render: **New → Blueprint**, pick the repo.
+2. Render asks for every secret (`sync: false`): the PayPal sandbox keys, one LLM key, `CHANNEL3_API_KEY`, `RESEND_API_KEY`, `APP_URL` (your `https://<service>.onrender.com`) and a long random `CRON_SECRET`. All are optional; missing ones fall back to mock mode.
+3. Deploy. The web service runs `npm ci && npm run build`, then `npm start`, with `SHIELD_DB_PATH=/data/db.json` on the disk so data survives restarts. The disk needs a paid (Starter) instance.
+4. The `shield-jobs` cron calls `GET /api/jobs?key=$CRON_SECRET` every 15 minutes (Vault auto-release, invoice reminders, freeze early warning, reorder alerts). It reads the host and secret from the web service.
+5. In the PayPal developer dashboard, add a webhook for `https://<service>.onrender.com/api/paypal/webhook` and set `PAYPAL_WEBHOOK_ID`. `NEXT_PUBLIC_PAYPAL_CLIENT_ID` is read at build time, so redeploy after setting it.
+6. Open the site, sign in as Meera, and press **Reset** on the Demo tab to seed the data.
+
+## Built with
+
+- **[PayPal Agent Toolkit](https://www.npmjs.com/package/@paypal/agent-toolkit)** (`@paypal/agent-toolkit`): the Tier 2 support agent's PayPal tools and Vault shipment tracking, behind Shield's policy engine.
+- **[Channel3](https://trychannel3.com/developers)**: product search across retailers for the shopping agent.
+- **[Render](https://render.com)**: hosting, persistent disk and the cron job (`render.yaml`).
+- **[APIMatic Context Plugin](https://gh.ali360.cloudns.ch/apimatic/context-matic)**: PayPal API and SDK context for Claude Code while building.
 
 ## License
 

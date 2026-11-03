@@ -125,6 +125,7 @@ export default async function ConsolePage({ searchParams }: { searchParams: Prom
                           {Object.entries(a.args).filter(([k]) => k !== "captureId").map(([k, v]) => `${k}: ${v}`).join(" · ")}
                         </p>
                         <p className="mt-2 text-[14px]">Status: <span className="font-bold">{ACTION_STATUS[a.status]}</span>{a.result ? `. ${a.result}` : ""}</p>
+                        {a.via && <p className="mt-1.5"><Pill tone={a.via.startsWith("PayPal Agent Toolkit") ? "accent" : "neutral"}>{a.via}</Pill></p>}
                         {needs && (
                           <div className="mt-4 flex flex-wrap gap-2">
                             <ActionButton path="/api/support" body={{ action: "decide", caseId: sel.id, actionId: a.id, approve: true }} confirm={`Approve and run: ${a.summary}?`}>Approve</ActionButton>

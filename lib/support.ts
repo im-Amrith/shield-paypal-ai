@@ -10,6 +10,7 @@ import { retrieve, KB, type Article } from "./kb";
 import { complete, completeJSON, llmProvider } from "./llm";
 import { decideTool, TOOLS } from "./policy";
 import * as paypal from "./paypal";
+import { viaToolkit } from "./toolkit";
 import { explainLimitation, liftLimitation } from "./risk";
 import { notify } from "./notify";
 
@@ -280,6 +281,7 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
   if (!TOOLS[action.tool]) throw new Error("Unknown tool");
 
   let result = "";
+  let via: string | undefined; // which PayPal integration ran it (shown in the console)
   try {
     const a = action.args as Record<string, string & number>;
     switch (action.tool) {
@@ -289,7 +291,13 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
         break;
       }
       case "issue_refund": {
-        const r = await paypal.refundCapture(a.captureId || "MOCKCAP", Number(a.amount), a.currency || "USD", `Refund for case ${caseId}`);
+        const cur = a.currency || "USD", note = `Refund for case ${caseId}`;
+        const run = await viaToolkit("create_refund",
+          { capture_id: a.captureId || "MOCKCAP", amount: { currency_code: cur, value: Number(a.amount).toFixed(2) }, note_to_payer: note },
+          (o) => ({ refundId: String(o.id), status: String(o.status) }),
+          () => paypal.refundCapture(a.captureId || "MOCKCAP", Number(a.amount), cur, note));
+        const r = run.value;
+        via = run.via;
         mutate((d) => {
           const t = d.transactions.find((x) => x.id === a.txId);
           if (t) t.refunded = true;
@@ -314,8 +322,30 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
         result = "Limitation lifted after document review";
         break;
       case "list_disputes": {
-        const r = await paypal.listDisputes();
-        result = `Checked disputes (${Array.isArray((r as { items?: unknown[] }).items) ? (r as { items: unknown[] }).items.length : 0} open)`;
+        const run = await viaToolkit("list_disputes", { page_size: 10 }, (o) => o, () => paypal.listDisputes());
+        via = run.via;
+        const items = (run.value as { items?: unknown[] }).items;
+        result = `Checked disputes (${Array.isArray(items) ? items.length : 0} open)`;
+        break;
+      }
+      case "get_order": {
+        const run = await viaToolkit("get_order", { id: String(a.orderId) }, (o) => o, () => paypal.getOrder(String(a.orderId)));
+        via = run.via;
+        result = `Order ${a.orderId} is ${String((run.value as { status?: string }).status || "unknown").toLowerCase()}`;
+        break;
+      }
+      case "cancel_invoice": {
+        const inv = db().invoices.find((i) => i.id === a.invoiceId);
+        if (!inv) throw new Error("Invoice not found");
+        if (inv.paypalInvoiceId) {
+          const run = await viaToolkit("cancel_sent_invoice", { invoice_id: inv.paypalInvoiceId, send_to_recipient: true }, () => ({ status: "CANCELLED" }), () => paypal.cancelInvoice(inv.paypalInvoiceId!));
+          via = run.via;
+        }
+        mutate((d) => {
+          const x = d.invoices.find((i) => i.id === inv.id);
+          if (x) x.status = "cancelled";
+        });
+        result = `Invoice ${inv.id} cancelled`;
         break;
       }
       default:
@@ -336,7 +366,8 @@ export async function executeAction(caseId: string, actionId: string, by: "custo
     const x = cc.actions.find((y) => y.id === actionId)!;
     x.status = "executed";
     x.result = result;
-    timeline(cc, `${action.summary} — ${by === "human" ? "approved by specialist" : by === "customer" ? "confirmed by customer" : "automatic"}`);
+    if (via) x.via = via;
+    timeline(cc, `${action.summary} — ${by === "human" ? "approved by specialist" : by === "customer" ? "confirmed by customer" : "automatic"}${via ? ` · via ${via}` : ""}`);
     return structuredClone(cc);
   });
   if (silent) return updated;

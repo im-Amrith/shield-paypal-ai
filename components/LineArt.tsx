@@ -101,6 +101,17 @@ const ART: Record<ArtId, React.ReactNode> = {
       <path pathLength={1} className="draw accent" d="M170 37l4 4 8-8" />
     </>
   ),
+  // A cart rolling along, items dropping in; a cap line the last item stops at.
+  shop: (
+    <>
+      <path pathLength={1} className="draw" d="M14 30h18l14 46h80l12-34H40" />
+      <circle pathLength={1} className="draw" cx="58" cy="90" r="7" /><circle pathLength={1} className="draw" cx="114" cy="90" r="7" />
+      <path pathLength={1} className="draw" d="M62 50h12v16H62zM82 46h14v20H82z" />
+      <path pathLength={1} className="draw dash" d="M150 20v76" />
+      <path pathLength={1} className="draw accent" d="M164 46h22M175 35v22" />
+      <circle className="dot" cx="104" cy="58" r="2.5" />
+    </>
+  ),
   // One line in, one decision point, three ways out.
   rules: (
     <>

@@ -1,0 +1,69 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# New → Blueprint → pick this repo. Render asks for every `sync: false` value on first deploy.
+services:
+  - type: web
+    name: shield
+    runtime: node
+    plan: starter # persistent disks need a paid instance
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    disk:
+      name: shield-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_BUILD_CPUS
+        value: "2"
+      - key: SHIELD_DB_PATH
+        value: /data/db.json
+      # PayPal sandbox (developer.paypal.com → Apps & Credentials → Sandbox)
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_PAYPAL_CLIENT_ID # same client id; read at build time by the browser bundle
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID # register https://<service>.onrender.com/api/paypal/webhook first
+        sync: false
+      # LLM: set one
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      # Products for the shopping agent (trychannel3.com/developers)
+      - key: CHANNEL3_API_KEY
+        sync: false
+      # Email (resend.com)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEMO_EMAIL_OVERRIDE
+        sync: false
+      - key: APP_URL # https://<service>.onrender.com
+        sync: false
+      - key: CRON_SECRET # any long random string
+        sync: false
+
+  # Background jobs (Vault auto-release, invoice reminders, freeze early warning, reorder alerts).
+  - type: cron
+    name: shield-jobs
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "*/15 * * * *"
+    buildCommand: echo "no build needed"
+    startCommand: curl -fsS "https://$SHIELD_HOST/api/jobs?key=$CRON_SECRET"
+    envVars:
+      - key: SHIELD_HOST
+        fromService:
+          type: web
+          name: shield
+          property: host
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: shield
+          envVarKey: CRON_SECRET

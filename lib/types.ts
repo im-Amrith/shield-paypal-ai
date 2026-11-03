@@ -71,6 +71,8 @@ export interface VaultDeal {
   deliveredAt?: string;
   releasedAt?: string;
   disputeReason?: string;
+  /** Tracking registered with PayPal (toolkit create_shipment_tracking or the Add Tracking API). */
+  paypalTracking?: { status: "shared" | "failed"; via: string; at: string; detail?: string };
   autoReleaseHours: number;
   history: { at: string; event: string; detail?: string }[];
 }
@@ -127,6 +129,8 @@ export interface ProposedAction {
   reason: string;
   status: "pending" | "approved" | "denied" | "executed" | "failed";
   result?: string;
+  /** Which PayPal integration ran it, e.g. "PayPal Agent Toolkit · create_refund". */
+  via?: string;
 }
 
 export interface SupportCase {
@@ -153,6 +157,59 @@ export interface Policy {
   revoked: boolean;
 }
 
+// ---------- Shopping agent (Protect → /shop) ----------
+
+export interface ShopItem {
+  query: string; // what the user asked for, e.g. "rice 5kg"
+  productId: string;
+  title: string;
+  brand?: string;
+  price: number;
+  currency: string;
+  retailer: string;
+  url?: string;
+  image?: string;
+  rating?: number;
+  reason: string; // why the agent picked it
+  source: "channel3" | "sample";
+}
+
+export interface ShopCart {
+  id: string;
+  userId: Persona;
+  createdAt: string;
+  need: string;
+  budget?: number;
+  monthly: boolean;
+  items: ShopItem[];
+  skipped: { query: string; why: string }[];
+  total: number;
+  currency: string;
+  decision: "auto" | "ask_customer" | "needs_human" | "blocked";
+  reason: string;
+  status: "awaiting_payment" | "pending_approval" | "paid" | "blocked" | "declined";
+  paypalOrderId?: string;
+  captureId?: string;
+  paidAt?: string;
+  approvedAt?: string; // one-tap approval for carts above the auto-approve threshold
+  reorderId?: string; // set when this cart came from a saved reorder
+  source: "channel3" | "sample";
+}
+
+export interface Reorder {
+  id: string;
+  userId: Persona;
+  need: string;
+  budget?: number;
+  items: { query: string; productId: string; title: string }[];
+  createdAt: string;
+  lastOrderedAt: string;
+  everyDays: number;
+  active: boolean;
+  lastProposedAt?: string;
+  notifiedAt?: string;
+}
+
 export interface DB {
   version: number;
   clockOffsetMs: number;
@@ -164,6 +221,8 @@ export interface DB {
   holds: GuardianHold[];
   cases: SupportCase[];
   policies: Policy[];
+  carts?: ShopCart[];
+  reorders?: Reorder[];
   outbox: { at: string; to: string; subject: string; body: string; provider: string }[];
   accountState: Record<string, { limited: boolean; limitedAt?: string; reasonCode?: string }>;
 }

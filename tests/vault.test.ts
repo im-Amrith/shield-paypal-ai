@@ -65,6 +65,6 @@ describe("Vault escrow", () => {
   });
   it("keeps an audit trail", async () => {
     const id = await shipped();
-    expect(db().vaultDeals.find((d) => d.id === id)!.history.map((h) => h.event)).toEqual(["created", "authorized", "shipped"]);
+    expect(db().vaultDeals.find((d) => d.id === id)!.history.map((h) => h.event)).toEqual(["created", "authorized", "shipped", "tracking shared with PayPal"]);
   });
 });

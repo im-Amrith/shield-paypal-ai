@@ -1,6 +1,6 @@
 // One catalogue of Shield's tools, shared by the mega-menu, the landing page and the breadcrumbs.
 
-export type ArtId = "scan" | "vault" | "guardian" | "subs" | "invoice" | "fx" | "health" | "voice" | "console" | "rules";
+export type ArtId = "scan" | "vault" | "guardian" | "subs" | "invoice" | "fx" | "health" | "voice" | "console" | "rules" | "shop";
 export type PillarId = "protect" | "getpaid" | "resolve";
 
 export interface Tool { id: string; title: string; tag?: string; desc: string; href: string; art: ArtId; public?: boolean }
@@ -13,6 +13,7 @@ export const PILLARS: Pillar[] = [
       { id: "scan", title: "Scam check", tag: "AI", desc: "Paste a chat or screenshot before you pay", href: "/protect/scan", art: "scan" },
       { id: "vault", title: "Vault escrow", tag: "PayPal Authorize", desc: "Money released only after delivery", href: "/vault", art: "vault" },
       { id: "guardian", title: "Guardian mode", tag: "Family", desc: "Unusual payments wait for a trusted relative", href: "/guardian", art: "guardian" },
+      { id: "shop", title: "Shopping agent", tag: "Agent", desc: "Buys what you need within your caps", href: "/shop", art: "shop" },
       { id: "subs", title: "Subscriptions", desc: "Find repeat charges you forgot", href: "/subscriptions", art: "subs" },
     ],
   },
@@ -51,6 +52,7 @@ export function crumbsFor(path: string): { href?: string; label: string }[] {
     case "vault": return detail ? [P.protect, { href: "/vault", label: "Vault" }, { label: "Deal" }] : [P.protect, { label: "Vault" }];
     case "guardian": return detail ? [P.protect, { href: "/guardian", label: "Guardian mode" }, { label: "Payment check" }] : [P.protect, { label: "Guardian mode" }];
     case "subscriptions": return [P.protect, { label: "Subscriptions" }];
+    case "shop": return [P.protect, { label: "Shopping agent" }];
     case "get-paid":
       if (seg[1] === "account") return [P.getpaid, { label: "Account health" }];
       if (seg[1] === "pay") return [{ href: "/app", label: "Invoices" }, { label: "Pay invoice" }];

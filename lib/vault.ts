@@ -8,6 +8,17 @@ import * as paypal from "./paypal";
 import { PayPalError } from "./paypal";
 import { notify } from "./notify";
 import { estimateFees } from "./fx";
+import { viaToolkit } from "./toolkit";
+
+/** PayPal's carrier codes for the names sellers usually type; anything else is sent as OTHER. */
+export function paypalCarrier(name: string): string {
+  const n = name.toLowerCase().replace(/[^a-z]/g, "");
+  const known: Record<string, string> = {
+    indiapost: "IND_INDIAPOST", speedpost: "IND_INDIAPOST", bluedart: "IND_BLUEDART", delhivery: "IND_DELHIVERY", dtdc: "IND_DTDC", ekart: "IND_EKART",
+    ups: "UPS", usps: "USPS", fedex: "FEDEX", dhl: "DHL", dhlexpress: "DHL",
+  };
+  return known[n] || "OTHER";
+}
 
 export const MAX_DEAL_DAYS = 21; // stay well inside PayPal's 29-day authorization period
 
@@ -81,8 +92,34 @@ export async function ship(id: string, trackingNumber: string, carrier: string) 
     d.carrier = carrier.trim() || "Other";
     d.shippedAt = nowIso();
   }, "shipped", `${carrier} ${trackingNumber}`);
+  await shareTracking(id);
   if (deal.buyerId) await notify(deal.buyerId, { kind: "vault", title: `"${deal.title}" has shipped`, body: `Tracking ${trackingNumber}. Confirm when it arrives.`, link: `/vault/${id}` });
   return out;
+}
+
+/**
+ * Register the tracking number with PayPal against the deal's PayPal transaction (the capture
+ * once released, the authorization before that). Seller protection relies on PayPal seeing it.
+ * A failure here never blocks shipping; it's recorded on the deal instead.
+ */
+export async function shareTracking(id: string) {
+  const deal = getDeal(id)!;
+  const transactionId = deal.captureId || deal.authorizationId;
+  if (!transactionId || !deal.trackingNumber) return;
+  const carrier = paypalCarrier(deal.carrier || "");
+  try {
+    const run = await viaToolkit("create_shipment_tracking",
+      { transaction_id: transactionId, tracking_number: deal.trackingNumber, carrier, status: "SHIPPED", order_id: deal.paypalOrderId },
+      () => ({ status: "SHIPPED" }),
+      () => paypal.addTracking({ transactionId, trackingNumber: deal.trackingNumber!, carrier, orderId: deal.paypalOrderId }));
+    update(id, (d) => {
+      d.paypalTracking = { status: "shared", via: run.via, at: nowIso(), detail: `${carrier} ${deal.trackingNumber} on ${transactionId}` };
+    }, "tracking shared with PayPal", run.via);
+  } catch (e) {
+    update(id, (d) => {
+      d.paypalTracking = { status: "failed", via: "PayPal Agent Toolkit · create_shipment_tracking", at: nowIso(), detail: (e as Error).message.slice(0, 200) };
+    }, "tracking not accepted by PayPal", (e as Error).message.slice(0, 200));
+  }
 }
 
 /** Carrier says delivered (simulated tracking webhook). Starts the auto-release window. */

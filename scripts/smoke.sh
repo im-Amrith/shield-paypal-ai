@@ -29,7 +29,7 @@ for p in meera ravi buyer client agent; do as $p; done
 post meera /api/demo '{"action":"reset"}' >/dev/null
 
 echo "Pages"
-for path in /app /protect /protect/scan /vault /guardian /subscriptions /get-paid /get-paid/account /support /demo; do
+for path in /app /protect /protect/scan /vault /guardian /subscriptions /shop /get-paid /get-paid/account /support /demo; do
   for p in meera ravi; do c=$(page $p $path); [ "$c" = 200 ] || { echo "  ✗ $path as $p -> $c"; exit 1; }; done
 done
 [ "$(page agent /console)" = 200 ] && [ "$(page agent /)" = 200 ] && ok "all pages render (200), signed in"
@@ -45,6 +45,21 @@ post meera /api/vault "{\"action\":\"ship\",\"id\":\"$id\",\"trackingNumber\":\"
 post meera /api/vault "{\"action\":\"deliver\",\"id\":\"$id\"}" >/dev/null
 post meera /api/demo '{"action":"advance","hours":73}' | field 'd.jobs.join(",")' | grep -q "released:$id" && ok "auto-released after 72h"
 [ "$(page buyer /vault/$id)" = 200 ] && ok "deal page renders"
+
+post meera /api/vault "{\"action\":\"ship\",\"id\":\"$id\",\"trackingNumber\":\"EZ1\",\"carrier\":\"India Post\"}" | grep -q "Can't ship" && ok "can't ship twice"
+curl -s -b "$J/meera" "$BASE/vault/$id" | grep -q "Tracking shared with PayPal" && ok "tracking shared with PayPal"
+
+echo "Shopping agent"
+post meera /api/shop '{"action":"plan","need":"Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40"}' | field 'd.status' | grep -q paid && ok "under the threshold: bought automatically"
+cart=$(post meera /api/shop '{"action":"plan","need":"toilet paper, paper towels, laundry detergent, coffee, olive oil"}' | field 'd.status+" "+d.id')
+[ "${cart%% *}" = pending_approval ] && ok "above the threshold: waits for one-tap approval"
+post meera /api/shop "{\"action\":\"approve\",\"id\":\"${cart#* }\"}" | field 'd.status' | grep -q paid && ok "approved and paid"
+post meera /api/shop '{"action":"plan","need":"a 55 inch TV"}' | field 'd.reason' | grep -q "per-order cap" && ok "over the per-order cap: blocked with the reason"
+post meera /api/shop '{"action":"revoke","revoked":true}' >/dev/null
+post meera /api/shop '{"action":"plan","need":"dish soap"}' | field 'd.reason' | grep -q revoked && ok "revoked agent buys nothing"
+post meera /api/shop '{"action":"revoke","revoked":false}' >/dev/null
+post meera /api/shop '{"action":"caps","perOrderCap":500,"monthlyCap":100,"autoApproveBelow":10}' | grep -q "monthly cap" && ok "caps panel rejects per-order above monthly"
+[ "$(page meera /shop)" = 200 ] && ok "shop page renders"
 
 echo "Guardian"
 hid=$(post ravi /api/guardian '{"action":"pay","payee":"Income Tax Officer","amount":450,"note":"pay immediately or arrest"}' | field 'd.hold.id')

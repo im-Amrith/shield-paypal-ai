@@ -1,0 +1,12 @@
+[
+  {"need": "Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 0, "expect": "auto"},
+  {"need": "toilet paper, paper towels, laundry detergent, coffee, olive oil", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 0, "expect": "ask_customer"},
+  {"need": "a 55 inch TV", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 0, "expect": "blocked"},
+  {"need": "Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 380, "expect": "blocked"},
+  {"need": "dish soap and AA batteries", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40, "revoked": true}, "spent": 0, "expect": "blocked"},
+  {"need": "Sony noise cancelling headphones", "policy": {"perOrderCap": 200, "monthlyCap": 500, "autoApproveBelow": 50}, "spent": 0, "expect": "blocked"},
+  {"need": "electric kettle", "policy": {"perOrderCap": 100, "monthlyCap": 250, "autoApproveBelow": 25}, "spent": 0, "expect": "auto"},
+  {"need": "Toilet paper, paper towels and trash bags under $35", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 0, "expect": "auto"},
+  {"need": "coffee, tea, toothpaste, shampoo", "policy": {"perOrderCap": 100, "monthlyCap": 250, "autoApproveBelow": 25}, "spent": 0, "expect": "ask_customer"},
+  {"need": "TV, kettle, budget $30", "policy": {"perOrderCap": 150, "monthlyCap": 400, "autoApproveBelow": 40}, "spent": 0, "expect": "auto"}
+]

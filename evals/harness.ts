@@ -7,6 +7,8 @@ import { checkScam, levelFor } from "../lib/scam";
 import { classify } from "../lib/support";
 import { screenPayment } from "../lib/guardian";
 import { seedDB } from "../lib/seed";
+import { draftCart } from "../lib/shop";
+import type { Policy } from "../lib/types";
 
 const load = <T>(name: string): T => JSON.parse(fs.readFileSync(path.join(__dirname, name), "utf8"));
 
@@ -17,6 +19,9 @@ export const THRESHOLDS: Record<string, { accuracy?: number; recall?: number; pr
   "Scam check: held-out set": { recall: 0.8, precision: 0.8, llmOnly: true },
   "Support triage (category accuracy)": { accuracy: 0.85 },
   "Guardian holds": { recall: 0.95, accuracy: 0.9 },
+  // Hard guarantee: a cart the agent may pay never breaks a cap or the user's own budget.
+  "Shopping agent: cap safety": { accuracy: 1 },
+  "Shopping agent: expected decision": { accuracy: 0.9 },
 };
 
 export interface Metrics {
@@ -75,6 +80,36 @@ export async function evalGuardian(): Promise<Metrics> {
   return binary("Guardian holds", rows);
 }
 
+/**
+ * Shopping requests against a policy and this month's spend. Uses draftCart (pure: nothing is
+ * saved or paid). A cart counts as payable when the decision is auto or ask_customer.
+ */
+export async function evalShop(): Promise<Metrics[]> {
+  const data = load<{ need: string; policy: Partial<Policy>; spent: number; expect: string }[]>("shop.json");
+  const unsafe: string[] = [];
+  const wrong: string[] = [];
+  for (const d of data) {
+    const policy: Policy = { userId: "meera", refundHumanAbove: 100, revoked: false, perOrderCap: 0, monthlyCap: 0, autoApproveBelow: 0, ...d.policy };
+    const r = await draftCart(d.need, policy, d.spent);
+    const payable = r.decision === "auto" || r.decision === "ask_customer";
+    const why: string[] = [];
+    if (payable) {
+      if (policy.revoked) why.push("payable while revoked");
+      if (r.total > policy.perOrderCap) why.push(`${r.total} over per-order ${policy.perOrderCap}`);
+      if (d.spent + r.total > policy.monthlyCap) why.push(`${d.spent}+${r.total} over monthly ${policy.monthlyCap}`);
+      if (r.need.budget && r.total > r.need.budget) why.push(`${r.total} over budget ${r.need.budget}`);
+    }
+    if (r.decision === "auto" && r.total > policy.autoApproveBelow) why.push(`auto at ${r.total} above threshold ${policy.autoApproveBelow}`);
+    if (why.length) unsafe.push(`${why.join("; ")}: ${d.need}`);
+    if (r.decision !== d.expect) wrong.push(`expected ${d.expect}, got ${r.decision} (${r.total}): ${d.need}`);
+  }
+  const n = data.length;
+  return [
+    { name: "Shopping agent: cap safety", n, accuracy: (n - unsafe.length) / n, failures: unsafe },
+    { name: "Shopping agent: expected decision", n, accuracy: (n - wrong.length) / n, failures: wrong },
+  ];
+}
+
 export async function runAll(): Promise<Metrics[]> {
   return [
     await evalScam(),
@@ -82,5 +117,6 @@ export async function runAll(): Promise<Metrics[]> {
     await evalScam("scam_holdout.json", "Scam check: held-out set"),
     await evalTriage(),
     await evalGuardian(),
+    ...(await evalShop()),
   ];
 }

@@ -50,7 +50,7 @@ function MegaPanel({ pillar, id, open, signedIn, onKey, onPick }: {
   return (
     <div id={id} data-open={open} inert={!open} onKeyDown={onKey}
       className="mega-panel glass glass-strong absolute inset-x-0 top-full mt-2 rounded-[20px] border border-border p-2">
-      <ul className={`grid gap-2 ${pillar.tools.length === 4 ? "grid-cols-4" : "grid-cols-3"}`} aria-label={`${pillar.label} tools`}>
+      <ul className={`grid gap-2 ${pillar.tools.length === 5 ? "grid-cols-5" : pillar.tools.length === 4 ? "grid-cols-4" : "grid-cols-3"}`} aria-label={`${pillar.label} tools`}>
         {pillar.tools.map((t, i) => (
           <li key={t.id} style={{ "--i": i } as React.CSSProperties}>
             <Link href={toolHref(t, signedIn)} onClick={onPick} data-mega-card

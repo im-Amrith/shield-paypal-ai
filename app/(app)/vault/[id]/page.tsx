@@ -94,6 +94,14 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       </HeroBand>
 
       {next}
+      {deal.paypalTracking && (
+        <p className="-mt-2 mb-5 flex flex-wrap items-center gap-2 text-[14px]">
+          {deal.paypalTracking.status === "shared"
+            ? <Pill tone="success">Tracking shared with PayPal</Pill>
+            : <Pill tone="danger">PayPal didn&apos;t accept the tracking</Pill>}
+          <span className="text-muted">{deal.paypalTracking.status === "shared" ? deal.paypalTracking.via : deal.paypalTracking.detail}</span>
+        </p>
+      )}
       {(deal.status === "shipped" || deal.status === "delivered") && isBuyer && (
         <div className="mb-5 grid gap-3 sm:grid-cols-2">
           <ActionButton full path="/api/vault" body={{ action: "confirm", id: deal.id }}>It arrived. Release payment</ActionButton>

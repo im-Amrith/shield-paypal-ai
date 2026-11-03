@@ -11,6 +11,10 @@ await call("meera", "/api/invoices", { action: "create", clientName: "Dana Brook
 const v = await call("meera", "/api/vault", { action: "create", title: "Canon 200D camera with 18-55 lens", amount: 320, currency: "USD" });
 await call("buyer", "/api/vault", { action: "authorize", id: v.deal.id });
 await call("meera", "/api/vault", { action: "ship", id: v.deal.id, trackingNumber: "EZ123456789IN", carrier: "India Post" });
+// Shopping agent: one cart bought automatically, one waiting for approval, one blocked by a cap.
+await call("meera", "/api/shop", { action: "plan", need: "a 55 inch TV" });
+await call("meera", "/api/shop", { action: "plan", need: "toilet paper, paper towels, laundry detergent, coffee, olive oil" });
+await call("meera", "/api/shop", { action: "plan", need: "Monthly reorder: dish soap, rice 5kg, AA batteries, budget USD 40" });
 const c = await call("ravi", "/api/support", { action: "start", text: "My GadgetHub earbuds never arrived" });
 await call("ravi", "/api/support", { action: "message", caseId: c.id, text: "that didn't work" });
 const h = await call("ravi", "/api/guardian", { action: "pay", payee: "Income Tax Officer", amount: 450, note: "penalty, pay immediately to avoid arrest", method: "paypal" });

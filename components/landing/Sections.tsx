@@ -147,7 +147,7 @@ export function Pillars({ signedIn }: { signedIn: boolean }) {
       </ul>
 
       <h3 data-reveal className="mt-20 text-[15px] font-semibold text-muted lg:mt-24">Every tool</h3>
-      <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {ALL_TOOLS.map((t) => (
           <li key={t.id} data-reveal className="min-w-0">
             <Link href={toolHref(t, signedIn)} className="lift group flex h-full flex-col rounded-[18px] border border-border bg-card p-4 sm:min-h-[200px]">

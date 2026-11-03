@@ -4,7 +4,7 @@ PayPal AI Hackathon entry (deadline Nov 12 2026, 12:00 PM PST). Solo builder. Pl
 https://claude.ai/code/artifact/81eefd39-bb93-455a-866a-9498803b701d
 
 **Shield = an AI trust layer on PayPal.** Three pillars on one shared guardrails engine:
-- Protect: scam check, Vault escrow (authorize now / capture on delivery), Guardian mode for seniors, subscription finder
+- Protect: scam check, Vault escrow (authorize now / capture on delivery), Guardian mode for seniors, shopping agent (/shop, Channel3 + caps), subscription finder
 - Get Paid: collections agent (invoice + reminder ladder + agreed late fee), FX billing copilot, freeze early-warning + Hold Explainer
 - Resolve: Tier 1 triage (KB + citations) → Tier 2 resolution agent (PayPal tools via policy engine) → human console (approve / deny / take over)
 
@@ -15,7 +15,7 @@ Routes: `/` is the public landing page, `/signin` is the demo sign-in (five pers
 ## Run
 ```
 npm install
-npm test          # 62 vitest tests, all passing
+npm test          # 92 vitest tests, all passing
 # open http://localhost:3000 → "Open Shield" → pick a persona
 npm run eval      # labeled eval sets (rules mode); SHIELD_EVAL_LLM=1 to include LLM
 npm run dev
@@ -30,6 +30,14 @@ DONE and verified:
 - Screens reviewed at 390px phone width
 
 Fixed along the way: DB cache was per-bundle (pages showed stale data) → store re-reads on file mtime change.
+
+Integrations (Nov 3, part 2):
+- PayPal Agent Toolkit (`@paypal/agent-toolkit`, adapter `lib/toolkit.ts`): `executeAction` in `lib/support.ts` runs refunds (`create_refund`), `list_disputes`, `get_order` and `cancel_sent_invoice` through it; Vault `ship` registers tracking with `create_shipment_tracking` (`shareTracking` in `lib/vault.ts`). decideTool still runs first. `viaToolkit()` picks toolkit (keys set) / REST fallback (toolkit failed to *load*) / mock (no keys) and returns a `via` label stored on the action (console pill) and in the timeline. A PayPal error from the toolkit is never retried via REST (no double refunds). Authorize/capture/void/reauthorize stay in `lib/paypal.ts`.
+- Gotcha (found live): the toolkit doesn't throw on PayPal errors; it returns JSON in several shapes (`{error}`, `{status:"error"}`, `{ok:false,status:404,message}`). `runToolkit` treats all as failures; keep it that way.
+- Shopping agent: `lib/shop.ts` (draftCart is pure, used by the eval; planCart saves), `/shop`, `/api/shop`, `components/ShopForms.tsx`. Channel3 `POST https://api.trychannel3.com/v1/search` with `x-api-key` (price lives on `offers[]`, no rating field); without `CHANNEL3_API_KEY` (or with SHIELD_FORCE_MOCK) it uses `SAMPLE_PRODUCTS`, labeled "Sample products". decideSpend runs when the cart is built and again before capture (`recheck`), so revoke/lowered caps stop carts mid-checkout. In the sandbox the payer approves each order in the PayPal popup (no vaulting); in mock, auto/approved carts are captured at once. Paid carts become 30-day reorders; `tickReorders` (in runJobs) notifies once per cycle.
+- `render.yaml`: web + 1 GB disk at /data (`SHIELD_DB_PATH=/data/db.json`, needs Starter plan) + cron every 15 min reading host and CRON_SECRET from the web service.
+- `.env.local` now has real sandbox PayPal, Channel3 and Resend keys: run `scripts/smoke.sh` against a server started with `SHIELD_FORCE_MOCK=1` (scripted buyer approvals fail in the sandbox, and it would send real emails).
+- APIMatic context plugin: `claude plugin install context-matic@apimatic` (marketplace `apimatic/context-matic`, named `apimatic`, not `apimatic-context-matic` as its README says).
 
 UI (Nov 2, part 2): landing page + navbar, in the style of chargeflow.io / decagon.ai (references `design/ref-bento.png`, `design/ref-megamenu.png`).
 - `components/Nav.tsx` `SiteNav` is the only chrome (sidebar and bottom nav are gone): floating frosted bar, mega-menu per pillar (hover with 120ms intent, click, or keyboard focus; arrows/Home/End/Esc), full-screen sheet below 1024px. Tool catalogue for menu, landing and breadcrumbs: `components/tools.ts`; fine-line drawings: `components/LineArt.tsx`.
@@ -49,14 +57,14 @@ UI (Nov 2): "Hero score" design — references in `design/hero-desktop.png` and 
 - `npm run screens` (app running on :3000) seeds the demo and screenshots every page per persona × theme × 390/1440 into `.screens/`, failing loudly on horizontal scroll, render errors and console errors. Uses `playwright-core` with the installed Chrome.
 - `components/styles.ts` holds `buttonClass`/`inputClass` — server pages must import from there, not from `components/client.tsx` (calling a client-module function on the server crashes the page).
 - Next.js page files may only export page things; shared maps live in `components/vaultStatus.ts` and `components/caseStatus.ts`.
-- `scripts/smoke.sh` fails on pages that return 200 but render an error boundary, checks every page as all 5 personas, and checks the signed-out flow (landing, /signin, redirect with next, API 401, sign-in form, open-redirect guard, sign-out). 26 checks.
+- `scripts/smoke.sh` fails on pages that return 200 but render an error boundary, checks every page as all 5 personas, and checks the signed-out flow (landing, /signin, redirect with next, API 401, sign-in form, open-redirect guard, sign-out). 36 checks, incl. Vault tracking and the shopping agent (auto, approve, blocked, revoked, caps validation).
 - Seed emails use the undelegated `.demo` TLD so Resend can never deliver demo mail to a real person.
 
 TODO next:
-1. Add real keys to `.env.local`; run the sandbox Vault flow with PayPal Smart Buttons and a real invoice; then `SHIELD_EVAL_LLM=1 npm run eval` and put the held-out number in the README.
+1. Keys are in `.env.local` (PayPal sandbox, Channel3, Resend; no LLM key yet). Run the sandbox Vault flow and a /shop checkout in a browser (PayPal popup) with PayPal Smart Buttons and a real invoice; then `SHIELD_EVAL_LLM=1 npm run eval` and put the held-out number in the README.
 2. Deploy to Render (+ cron for /api/jobs), seed demo, check on a real phone (voice needs Chrome/Android or Safari).
 3. Record the <3 min video (script in the plan doc). Submit on Devpost before Nov 12, 12:00 PM PST.
-Stretch: bounded shopping agent UI (`decideSpend` exists), traceable giving.
+Stretch: traceable giving.
 
 ## Conventions / gotchas
 - Never store caller-owned arrays by reference in the DB (a test caught `items` being mutated); copy.

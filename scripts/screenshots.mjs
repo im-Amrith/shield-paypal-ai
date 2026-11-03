@@ -12,8 +12,8 @@ const idsJson = execFileSync(process.execPath, [fileURLToPath(new URL("./seed-de
 const ids = JSON.parse(idsJson);
 const BASE = process.env.BASE || "http://localhost:3000";
 const PAGES = {
-  meera: ["/app", "/alerts", "/protect", "/protect/scan?q=send it as friends and family, my courier will collect today", "/vault", `/vault/${ids.vault}`, "/guardian", `/guardian/${ids.hold}`, "/get-paid", "/get-paid/account", "/subscriptions", "/support", "/demo"],
-  ravi: ["/app", "/guardian", `/guardian/${ids.hold}`, `/support?case=${ids.case}`, "/subscriptions"],
+  meera: ["/app", "/alerts", "/protect", "/protect/scan?q=send it as friends and family, my courier will collect today", "/vault", `/vault/${ids.vault}`, "/guardian", `/guardian/${ids.hold}`, "/get-paid", "/get-paid/account", "/subscriptions", "/shop", "/support", "/demo"],
+  ravi: ["/app", "/guardian", `/guardian/${ids.hold}`, `/support?case=${ids.case}`, "/subscriptions", "/shop"],
   buyer: ["/app", `/vault/${ids.vault}`],
   agent: ["/app", `/console?case=${ids.case}`],
   client: ["/app", `/get-paid/pay/${ids.invoice}`],

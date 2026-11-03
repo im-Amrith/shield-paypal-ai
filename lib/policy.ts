@@ -54,7 +54,7 @@ export function decideTool(tool: string, args: { amount?: number }, policy: Poli
 /** Spending guardrail for agents that buy things (shopping agent). */
 export function decideSpend(amount: number, spentThisMonth: number, policy: Policy): { decision: Decision; reason: string } {
   if (policy.revoked) return { decision: "blocked", reason: "Agent permissions are revoked" };
-  if (amount <= 0) return { decision: "blocked", reason: "Invalid amount" };
+  if (!Number.isFinite(amount) || amount <= 0) return { decision: "blocked", reason: "Invalid amount" };
   if (spentThisMonth + amount > policy.monthlyCap)
     return { decision: "blocked", reason: `Would exceed the monthly cap of ${policy.monthlyCap} (spent ${spentThisMonth.toFixed(2)})` };
   if (amount > policy.perOrderCap) return { decision: "blocked", reason: `Above the per-order cap of ${policy.perOrderCap}` };
