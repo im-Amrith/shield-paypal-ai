@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { Lock, Truck, PackageCheck, CircleCheck, PauseCircle, Link2, ShieldCheck } from "lucide-react";
 import { getUser } from "@/lib/session";
 import { getDeal, releaseEta, MAX_DEAL_DAYS } from "@/lib/vault";
 import { estimateFees } from "@/lib/fx";
 import { paypalMode } from "@/lib/paypal";
+import { publicUrl } from "@/lib/url";
 import { Card, Pill, PageHeader, Section, Timeline, When, Track, KeyValues, Note, fmtMoney, HeroBand, HeroGauge, Hi, AlertBanner } from "@/components/ui";
 import { VAULT_STEPS, vaultStage, vaultStatus } from "@/components/vaultStatus";
 import { ActionButton, CopyButton } from "@/components/client";
@@ -31,7 +33,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const isBuyer = deal.buyerId === me.id || (!deal.buyerId && me.role === "buyer");
   const fees = estimateFees(deal.amount, deal.currency, "domestic");
   const eta = releaseEta(deal);
-  const link = `${process.env.APP_URL || "http://localhost:3000"}/vault/${deal.id}`;
+  const link = publicUrl(`/vault/${deal.id}`, await headers());
   const st = vaultStatus[deal.status];
   const stage = vaultStage(deal.status);
   const live = deal.status !== "voided" && deal.status !== "expired";
@@ -47,7 +49,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       <Card className="mb-5 border-l-4 border-l-accent p-5 sm:p-6">
         <h2 className="text-[18px] font-extrabold">Pay {fmtMoney(deal.amount, deal.currency)} into Vault</h2>
         <p className="mb-4 mt-1 text-[15px] text-muted">Your money is <b className="font-bold text-fg">held, not sent</b>. Meera is paid only after you confirm, or {deal.autoReleaseHours / 24} days after delivery if you don&apos;t report a problem.</p>
-        <PayPalPay dealId={deal.id} orderId={deal.paypalOrderId!} currency={deal.currency} />
+        <PayPalPay dealId={deal.id} currency={deal.currency} />
       </Card>
     );
   } else if (deal.status === "created") {
@@ -138,7 +140,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
               <li>Either side can cancel before shipping; nothing is charged</li>
             </ul>
           </Card>
-          <Note>PayPal {paypalMode()} · order <span className="tabular">{deal.paypalOrderId}</span>{deal.authorizationId ? <> · authorization <span className="tabular">{deal.authorizationId}</span></> : null}</Note>
+          <Note>PayPal {paypalMode()}{deal.paypalOrderId ? <> · order <span className="tabular">{deal.paypalOrderId}</span></> : null}{deal.authorizationId ? <> · authorization <span className="tabular">{deal.authorizationId}</span></> : null}</Note>
         </aside>
       </div>
     </div>

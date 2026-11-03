@@ -14,8 +14,12 @@ export function proxy(req: NextRequest) {
     if (PUBLIC_API.some((p) => pathname === p || pathname.startsWith(p + "/"))) return NextResponse.next();
     return NextResponse.json({ ok: false, error: "Sign in first" }, { status: 401 });
   }
-  const url = new URL("/signin", req.url);
-  url.searchParams.set("next", pathname + search);
+  // Middleware must return an absolute Location. Built on the request's own origin (on Render that's
+  // the internal localhost:10000), Next rewrites it to the relative "/signin?next=…" before sending,
+  // so the browser stays on the public host. Never build it from x-forwarded-* or APP_URL here.
+  const url = req.nextUrl.clone();
+  url.pathname = "/signin";
+  url.search = `?${new URLSearchParams({ next: pathname + search })}`;
   return NextResponse.redirect(url);
 }
 

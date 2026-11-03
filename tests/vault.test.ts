@@ -15,11 +15,21 @@ async function shipped() {
 describe("Vault escrow", () => {
   beforeEach(() => resetDB());
 
-  it("creates an AUTHORIZE order and shows fees up front", async () => {
+  it("shows fees up front and creates the PayPal order only when the buyer pays", async () => {
     const r = await vault.createDeal("meera", "Camera", 320, "USD");
     expect(r.deal.status).toBe("created");
-    expect(r.deal.paypalOrderId).toBeTruthy();
+    expect(r.deal.paypalOrderId).toBeUndefined();
     expect(r.fees.fee).toBeGreaterThan(0);
+    const first = await vault.checkoutOrder(r.deal.id, "buyer");
+    const second = await vault.checkoutOrder(r.deal.id, "buyer"); // a second click: a fresh order
+    expect(second.orderId).not.toBe(first.orderId);
+    expect(vault.getDeal(r.deal.id)!.paypalOrderId).toBe(second.orderId);
+    await expect(vault.authorize(r.deal.id, "buyer", first.orderId)).rejects.toThrow(/doesn't belong/);
+    expect((await vault.authorize(r.deal.id, "buyer", second.orderId)).status).toBe("authorized");
+  });
+  it("the seller can't pay their own deal", async () => {
+    const r = await vault.createDeal("meera", "Camera", 320, "USD");
+    await expect(vault.checkoutOrder(r.deal.id, "meera")).rejects.toThrow(/seller/);
   });
   it("releases on buyer confirmation", async () => {
     const id = await shipped();

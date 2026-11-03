@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ArrowRight } from "lucide-react";
 import { Avatar } from "@/components/ui";
 import { signedInPersona } from "@/lib/session";
+import { safeNext } from "@/lib/url";
 
 export const metadata: Metadata = { title: "Sign in · Shield" };
 
@@ -13,9 +14,6 @@ const PEOPLE = [
   { id: "agent", name: "Priya", tag: "Support", line: "The specialist console. Approve the refunds the AI can't make alone, or take over." },
 ];
 
-function safeNext(v?: string) {
-  return v && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") ? v : "/app";
-}
 
 export default async function SignIn({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   const next = safeNext((await searchParams).next);

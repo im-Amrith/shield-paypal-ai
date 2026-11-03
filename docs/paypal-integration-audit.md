@@ -97,6 +97,33 @@ REST reference instead, and this doc marks them that way.
 - Added `onCancel`, so a closed popup shows "nothing was charged" instead of nothing at all.
 - It stays on v5 of the JS SDK, which is still supported; v6 would mean a different integration.
 
+**Checkout popup fix (Nov 3, later).** Buyers saw "Things don't appear to be working at the moment"
+and the console logged `Detected container element removed from DOM`: the button container was
+cleared and re-rendered while the popup was open (effect re-runs, StrictMode, LiveRefresh's
+`router.refresh()` every 3 s), and the order was made when the deal was created, so it could be stale.
+- Buttons now use the official `@paypal/react-paypal-js` (`PayPalScriptProvider` + `PayPalButtons`,
+  JS SDK v5, `intent` `authorize` for Vault, `capture` for /shop). Each button is rendered once per
+  mount at a stable position; nothing clears its container. /shop wraps all carts in one provider:
+  two providers loading the same SDK at once inject it twice and the second load destroys the
+  first one's buttons ("zoid destroyed all components").
+- The provider loads the SDK only after mount (`deferLoading` until an effect runs). StrictMode
+  double-runs mount effects; loading on mount injected a second copy while the first was loading.
+- `createOrder` calls our API (`action: "order"`) and gets a **fresh** order at click time with the
+  right intent and amount. Vault deals no longer create an order up front; /shop creates it at click
+  time too (mock mode still creates and captures at once). Only the latest order can be
+  authorized/captured; another order id is rejected.
+- A checkout lock (`components/checkoutLock.ts`) is set in `onClick` and cleared in
+  `onApprove`/`onCancel`/`onError` (and on unmount, or after 15 minutes). LiveRefresh skips while
+  it's held; the page refreshes once after `onApprove` finishes.
+- `onCancel` shows "Payment cancelled — nothing was charged." Errors show a readable message and log
+  the details. PayPal API errors come back as `PayPal error <ISSUE>: <what to do> (debug id …)`;
+  the `debug_id` is also logged on the server (`lib/http.ts`, `paypalErrorInfo` in `lib/paypal.ts`).
+  Payee errors (`UNSUPPORTED_PAYEE_CURRENCY`, `PAYEE_ACCOUNT_RESTRICTED`, …) say to use a US sandbox
+  business account. `INSTRUMENT_DECLINED` reopens the popup (`actions.restart()`), as PayPal advises.
+- Verified with Playwright in `next dev` (StrictMode) and `next start`, for Vault and /shop: the
+  popup opens on PayPal's sandbox login, the button stays while the DB changes for 10 s (several
+  LiveRefresh ticks), there's no container error, and closing the popup shows the cancel message.
+
 ## Fixed afterwards (Nov 3, follow-up)
 - **Late-fee mismatch: fixed.** Before, the final reminder added the agreed fee only to Shield's copy
   of the invoice, so a client paying through PayPal paid the original amount. Now the original

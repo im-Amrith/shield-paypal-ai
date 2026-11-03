@@ -99,7 +99,8 @@ A failed PayPal call shows its reason in the page or the console log, for exampl
   when it isn't.
 
 **Fail:**
-- The popup closes without paying: you should see "Payment cancelled. Nothing was charged".
+- The popup closes without paying: you should see "Payment cancelled — nothing was charged."
+- A red "PayPal error <ISSUE>: …" message: note the issue and the debug id. `UNSUPPORTED_PAYEE_CURRENCY` or `PAYEE_ACCOUNT_RESTRICTED` means the app's sandbox business account can't take USD: use a US sandbox business account.
 - The cart is captured without the popup, which means mock mode is still on.
 
 ## After

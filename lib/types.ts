@@ -61,7 +61,9 @@ export interface VaultDeal {
   currency: string;
   status: VaultStatus;
   createdAt: string;
+  /** The PayPal order from the buyer's latest click on the PayPal button (created fresh each time). */
   paypalOrderId?: string;
+  orderCreatedAt?: string;
   authorizationId?: string;
   authorizedAt?: string;
   /** Set when the hold was reauthorized after PayPal's 3-day honor period (allowed once, days 4–29). */

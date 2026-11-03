@@ -30,9 +30,60 @@ async function token(): Promise<string> {
 export class PayPalError extends Error {
   /** PayPal's machine-readable reason, e.g. `AUTHORIZATION_EXPIRED` (from `details[0].issue`, else `name`). */
   public issue?: string;
+  /** PayPal's debug_id: quote it to PayPal support (or look it up in the developer dashboard). */
+  public debugId?: string;
   constructor(message: string, public status: number, public body: string) {
     super(message);
     this.issue = issueOf(body);
+    this.debugId = debugIdOf(body);
+  }
+}
+
+function debugIdOf(body: string): string | undefined {
+  try {
+    return (JSON.parse(body) as { debug_id?: string }).debug_id || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Errors that mean the seller's (payee's) account can't take this payment. */
+const PAYEE_ISSUES = new Set([
+  "UNSUPPORTED_PAYEE_CURRENCY", "PAYEE_ACCOUNT_RESTRICTED", "PAYEE_ACCOUNT_LOCKED_OR_CLOSED", "PAYEE_ACCOUNT_INVALID",
+  "PAYEE_NOT_ENABLED_FOR_CARD_PROCESSING", "PAYEE_BLOCKED_TRANSACTION", "CURRENCY_NOT_SUPPORTED_FOR_COUNTRY",
+  "PAYEE_NOT_CONSENTED", "PAYEE_ACCOUNT_NOT_SUPPORTED", "PAYEE_ACCOUNT_NOT_VERIFIED",
+]);
+export const PAYEE_ACCOUNT_HELP = "The seller's PayPal sandbox account can't receive this currency — use a US sandbox business account.";
+
+const HELP: Record<string, string> = {
+  INSTRUMENT_DECLINED: "Your payment method was declined. Pick another card or your PayPal balance in the PayPal window and try again.",
+  PAYER_ACTION_REQUIRED: "PayPal needs you to finish approving the payment in the PayPal window. Click the PayPal button again.",
+  ORDER_NOT_APPROVED: "The payment wasn't approved in the PayPal window. Click the PayPal button again.",
+  PAYER_CANNOT_PAY: "PayPal can't take this payment from this buyer account. Try another sandbox personal account.",
+  PAYER_ACCOUNT_RESTRICTED: "The buyer's PayPal account is restricted. Log in with another sandbox personal account.",
+  TRANSACTION_REFUSED: "PayPal refused this payment. Try another payment method or sandbox account.",
+  ORDER_ALREADY_AUTHORIZED: "This payment is already held. Reload the page.",
+  ORDER_ALREADY_CAPTURED: "This payment has already gone through. Reload the page.",
+  DUPLICATE_INVOICE_ID: "PayPal saw this payment before. Reload the page and try again.",
+  AUTHORIZATION_EXPIRED: "The hold expired before it was used. Ask the buyer to pay again.",
+};
+
+/**
+ * What to show a person for a PayPal failure: the error name, what to do, and the debug_id.
+ * `code` is PayPal's issue name, so the browser can react (INSTRUMENT_DECLINED → restart the popup).
+ */
+export function paypalErrorInfo(e: PayPalError): { code: string; message: string; debugId?: string } {
+  const code = e.issue || `HTTP_${e.status}`;
+  const help = PAYEE_ISSUES.has(code) ? PAYEE_ACCOUNT_HELP : HELP[code] || describe(e.body) || "PayPal couldn't complete this step. Try again in a moment.";
+  return { code, message: `PayPal error ${code}: ${help}${e.debugId ? ` (debug id ${e.debugId})` : ""}`, debugId: e.debugId };
+}
+
+function describe(body: string): string | undefined {
+  try {
+    const j = JSON.parse(body) as { message?: string; details?: { description?: string }[] };
+    return j.details?.[0]?.description || j.message;
+  } catch {
+    return undefined;
   }
 }
 

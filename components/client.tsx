@@ -3,9 +3,17 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Sun, Moon, Search } from "lucide-react";
 import { buttonClass, inputClass, labelClass, type ButtonVariant } from "./styles";
+import { isCheckoutOpen } from "./checkoutLock";
 
 export { buttonClass, inputClass, labelClass };
 export type { ButtonVariant };
+
+/** An API error. PayPal failures carry PayPal's issue name (`code`) and `debugId`. */
+export class ApiError extends Error {
+  constructor(message: string, public code?: string, public debugId?: string) {
+    super(message);
+  }
+}
 
 export async function api<T = unknown>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -13,8 +21,8 @@ export async function api<T = unknown>(path: string, body?: unknown): Promise<T>
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const j = await res.json();
-  if (!j.ok) throw new Error(j.error || "Request failed");
+  const j = await res.json().catch(() => ({ ok: false, error: `Request failed (${res.status})` }));
+  if (!j.ok) throw new ApiError(j.error || "Request failed", j.code, j.debugId);
   return j.data as T;
 }
 
@@ -112,10 +120,11 @@ export function LiveRefresh({ every = 3000 }: { every?: number }) {
   const last = useRef<number | null>(null);
   useEffect(() => {
     const t = setInterval(async () => {
-      if (document.hidden) return;
+      // Never re-render under an open PayPal popup; the button refreshes itself after onApprove.
+      if (document.hidden || isCheckoutOpen()) return;
       try {
         const s = await api<{ version: number }>("/api/state");
-        if (last.current !== null && s.version !== last.current) router.refresh();
+        if (last.current !== null && s.version !== last.current && !isCheckoutOpen()) router.refresh();
         last.current = s.version;
       } catch {
         /* offline */

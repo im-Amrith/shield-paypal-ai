@@ -7,6 +7,8 @@ export const POST = handle(async (b) => {
   switch (b.action) {
     case "create":
       return vault.createDeal(me, String(b.title || ""), Number(b.amount), String(b.currency || "USD"), Number(b.autoReleaseHours) || 72);
+    case "order": // the buyer clicked the PayPal button: a fresh AUTHORIZE order for this deal
+      return vault.checkoutOrder(String(b.id), me);
     case "authorize":
       return vault.authorize(b.id, me, b.orderId);
     case "ship":

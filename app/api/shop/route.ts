@@ -13,6 +13,8 @@ export const POST = handle(async (b) => {
       return shop.approveCart(me, String(b.id));
     case "decline":
       return shop.declineCart(me, String(b.id));
+    case "order": // the payer clicked the PayPal button: a fresh CAPTURE order for this cart
+      return shop.checkoutOrder(me, String(b.id));
     case "pay":
       return shop.pay(me, String(b.id), b.orderId ? String(b.orderId) : undefined);
     case "reorder":

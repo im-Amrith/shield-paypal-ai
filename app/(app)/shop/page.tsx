@@ -7,7 +7,7 @@ import { policyFor, spentThisMonth, productSource, isDue, nextDue } from "@/lib/
 import type { ShopCart } from "@/lib/types";
 import { Card, Pill, PageHeader, Section, Empty, When, Mark, Note, HeroBand, HeroGauge, Hi, KeyValues, fmtMoney, type Tone } from "@/components/ui";
 import { ActionButton } from "@/components/client";
-import { PayPalButtons } from "@/components/PayPalPay";
+import { PayPalButtons, PayPalProvider } from "@/components/PayPalPay";
 import { NeedForm, RevokeSwitch, CapsForm } from "@/components/ShopForms";
 
 export const dynamic = "force-dynamic";
@@ -79,9 +79,9 @@ function CartCard({ cart, revoked }: { cart: ShopCart; revoked: boolean }) {
             <ActionButton full variant="secondary" path="/api/shop" body={{ action: "decline", id: cart.id }}>Decline</ActionButton>
           </div>
         )}
-        {cart.status === "awaiting_payment" && cart.paypalOrderId && !revoked && (
+        {cart.status === "awaiting_payment" && !revoked && (
           <div className="mt-4">
-            <PayPalButtons orderId={cart.paypalOrderId} currency={cart.currency} intent="capture" path="/api/shop" body={{ action: "pay", id: cart.id }}
+            <PayPalButtons currency={cart.currency} intent="capture" path="/api/shop" orderBody={{ action: "order", id: cart.id }} body={{ action: "pay", id: cart.id }}
               mockLabel="Pay with PayPal" mockNote="Mock mode: the PayPal approval is simulated." />
             <p className="mt-2 text-[13px] text-muted">Your caps are checked again right before PayPal captures the payment.</p>
           </div>
@@ -130,7 +130,7 @@ export default async function ShopPage() {
 
           <Section title="Carts" className="!mb-0">
             {carts.length
-              ? <div className="space-y-4">{carts.map((c) => <CartCard key={c.id} cart={c} revoked={policy.revoked} />)}</div>
+              ? <PayPalProvider currency="USD" intent="capture"><div className="space-y-4">{carts.map((c) => <CartCard key={c.id} cart={c} revoked={policy.revoked} />)}</div></PayPalProvider>
               : <Empty>No carts yet. Try the monthly reorder example above.</Empty>}
           </Section>
         </div>

@@ -2,6 +2,7 @@
 // recorded in the demo outbox) + web push placeholder (in-app badge).
 import { mutate, uid, db } from "./store";
 import { nowIso } from "./clock";
+import { publicUrl } from "./url";
 import type { Notification, Persona } from "./types";
 
 export async function sendEmail(to: string, subject: string, body: string): Promise<"resend" | "outbox"> {
@@ -38,7 +39,7 @@ export async function notify(
   const user = db().users.find((u) => u.id === userId);
   const channel: Notification["channel"] = ["in_app", "push"];
   if (n.email && user) {
-    await sendEmail(user.email, n.title, `${n.body}\n\n${n.link ? `Open in Shield: ${process.env.APP_URL || "http://localhost:3000"}${n.link}` : ""}`);
+    await sendEmail(user.email, n.title, `${n.body}\n\n${n.link ? `Open in Shield: ${publicUrl(n.link)}` : ""}`);
     channel.push("email");
   }
   const note: Notification = {

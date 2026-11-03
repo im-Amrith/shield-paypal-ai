@@ -55,22 +55,45 @@ export async function createDeal(sellerId: Persona, title: string, amount: numbe
   if (!(amount > 0) || amount > 10000) throw new Error("Amount must be between 0 and 10,000");
   if (!title.trim()) throw new Error("Describe the item");
   const id = uid("vault");
-  const order = await paypal.createOrder({ amount, currency, description: `Vault: ${title}`, intent: "AUTHORIZE", referenceId: id });
+  // No PayPal order yet: it's created when the buyer clicks the PayPal button (checkoutOrder),
+  // so it is never stale by the time they pay.
   const deal: VaultDeal = {
-    id, sellerId, title: title.trim(), amount, currency, status: "created", createdAt: nowIso(),
-    paypalOrderId: order.id, autoReleaseHours,
-    history: [{ at: nowIso(), event: "created", detail: `PayPal order ${order.id} (intent AUTHORIZE)` }],
+    id, sellerId, title: title.trim(), amount, currency, status: "created", createdAt: nowIso(), autoReleaseHours,
+    history: [{ at: nowIso(), event: "created", detail: `${currency} ${amount} Vault deal; the buyer pays into a PayPal hold (intent AUTHORIZE)` }],
   };
   mutate((x) => {
     x.vaultDeals.unshift(deal);
   });
-  return { deal, approveUrl: order.approveUrl, fees: estimateFees(amount, currency, "domestic") };
+  return { deal, fees: estimateFees(amount, currency, "domestic") };
+}
+
+/**
+ * The buyer clicked the PayPal button: create a fresh AUTHORIZE order for the deal's amount and
+ * remember its id. Each click gets a new order; only the latest one can be authorized.
+ */
+export async function checkoutOrder(id: string, buyerId: Persona): Promise<{ orderId: string }> {
+  const deal = assert(getDeal(id), "authorize");
+  if (buyerId === deal.sellerId) throw new Error("The seller can't pay their own Vault deal");
+  const order = await paypal.createOrder({ amount: deal.amount, currency: deal.currency, description: `Vault: ${deal.title}`, intent: "AUTHORIZE", referenceId: id });
+  mutate((x) => {
+    const d = x.vaultDeals.find((v) => v.id === id)!;
+    d.paypalOrderId = order.id;
+    d.orderCreatedAt = nowIso();
+  });
+  return { orderId: order.id };
 }
 
 /** Called after the buyer approves the PayPal order. Places the hold. */
 export async function authorize(id: string, buyerId: Persona, approvedOrderId?: string) {
   const deal = assert(getDeal(id), "authorize");
-  const orderId = approvedOrderId || deal.paypalOrderId!;
+  if (buyerId === deal.sellerId) throw new Error("The seller can't pay their own Vault deal");
+  let orderId = approvedOrderId;
+  if (orderId && orderId !== deal.paypalOrderId) throw new Error("That PayPal order doesn't belong to this deal. Click the PayPal button again.");
+  if (!orderId) {
+    // Mock mode's simulated approval: no popup, so make the order here.
+    if (paypal.paypalMode() !== "mock") throw new Error("Pay with the PayPal button first");
+    orderId = (await checkoutOrder(id, buyerId)).orderId;
+  }
   const a = await paypal.authorizeOrder(orderId);
   const out = update(id, (d) => {
     d.status = "authorized";

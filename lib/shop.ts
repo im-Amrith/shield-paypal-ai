@@ -316,14 +316,34 @@ function recheck(cart: ShopCart): void {
   }
 }
 
-/** Create the PayPal order (intent CAPTURE). In mock mode the capture happens straight away. */
+async function createCartOrder(cart: ShopCart): Promise<string> {
+  const order = await paypal.createOrder({ amount: cart.total, currency: cart.currency, description: `Shield shopping agent: ${cart.items.map((i) => i.title).join(", ")}`, intent: "CAPTURE", referenceId: cart.id });
+  patchCart(cart.id, (c) => { c.paypalOrderId = order.id; });
+  return order.id;
+}
+
+/**
+ * Ready the cart for payment. In mock mode the order is created and captured straight away. With
+ * PayPal keys the order is created only when the payer clicks the PayPal button (checkoutOrder).
+ */
 async function startCheckout(id: string): Promise<ShopCart> {
   const cart = getCart(id)!;
   recheck(cart);
-  const order = await paypal.createOrder({ amount: cart.total, currency: cart.currency, description: `Shield shopping agent: ${cart.items.map((i) => i.title).join(", ")}`, intent: "CAPTURE", referenceId: cart.id });
-  patchCart(id, (c) => { c.status = "awaiting_payment"; c.paypalOrderId = order.id; });
-  if (paypal.paypalMode() === "mock") return pay(cart.userId, id);
+  patchCart(id, (c) => { c.status = "awaiting_payment"; delete c.paypalOrderId; });
+  if (paypal.paypalMode() === "mock") {
+    await createCartOrder(getCart(id)!);
+    return pay(cart.userId, id);
+  }
   return getCart(id)!;
+}
+
+/** The payer clicked the PayPal button: caps again, then a fresh CAPTURE order for the cart total. */
+export async function checkoutOrder(userId: Persona, id: string): Promise<{ orderId: string }> {
+  const cart = getCart(id);
+  if (!cart || cart.userId !== userId) throw new Error("Cart not found");
+  if (cart.status !== "awaiting_payment") throw new Error(`This cart is ${cart.status.replace("_", " ")}`);
+  recheck(cart);
+  return { orderId: await createCartOrder(cart) };
 }
 
 /** One-tap approval for a cart above the auto-approve threshold. */
@@ -352,7 +372,8 @@ export async function pay(userId: Persona, id: string, approvedOrderId?: string)
   const cart = getCart(id);
   if (!cart || cart.userId !== userId) throw new Error("Cart not found");
   if (cart.status !== "awaiting_payment") throw new Error(`This cart is ${cart.status.replace("_", " ")}`);
-  if (approvedOrderId && cart.paypalOrderId && approvedOrderId !== cart.paypalOrderId) throw new Error("That PayPal order doesn't belong to this cart");
+  if (!cart.paypalOrderId) throw new Error("Pay with the PayPal button first");
+  if (approvedOrderId && approvedOrderId !== cart.paypalOrderId) throw new Error("That PayPal order doesn't belong to this cart. Click the PayPal button again.");
   recheck(cart);
   const cap = await paypal.captureOrder(cart.paypalOrderId!);
   const paid = patchCart(id, (c) => { c.status = "paid"; c.captureId = cap.captureId; c.paidAt = nowIso(); });
